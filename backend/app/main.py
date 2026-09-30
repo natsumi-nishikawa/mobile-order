@@ -1,0 +1,24 @@
+from fastapi import FastAPI
+
+from app.routers.customer_sessions import router as customer_sessions_router
+from app.routers.customer_participants import router as customer_participants_router
+from app.routers.customer_menu import router as customer_menu_router
+from app.routers.customer_selections import router as customer_selections_router
+from app.routers.customer_orders import router as customer_orders_router
+from app.routers.customer_billing import router as customer_billing_router
+
+
+app = FastAPI()
+
+
+app.include_router(customer_sessions_router)
+app.include_router(customer_participants_router)
+app.include_router(customer_menu_router)
+app.include_router(customer_selections_router)
+app.include_router(customer_orders_router)
+app.include_router(customer_billing_router)
+
+
+@app.get("/")
+def root():
+    return {"message": "Mobile Order API"}

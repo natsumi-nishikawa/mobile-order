@@ -1,0 +1,25 @@
+# 環境変数・秘密情報
+.env
+.env.*
+!.env.example
+
+# Python仮想環境
+.venv/
+venv/
+
+# Pythonキャッシュ
+__pycache__/
+*.py[cod]
+
+# pytest
+.pytest_cache/
+
+# Node / React
+node_modules/
+dist/
+build/
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
