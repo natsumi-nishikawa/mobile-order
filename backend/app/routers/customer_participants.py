@@ -4,6 +4,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+
+from app.auth import create_customer_token
 from app.models.participant import Participant
 from app.models.session import Session as SessionModel
 from app.schemas.customer import ParticipantCreate, ParticipantResponse
@@ -63,8 +65,14 @@ def create_participant(
 
     db.refresh(participant)
 
+    token = create_customer_token(
+        participant_id=participant.id,
+        session_id=participant.session_id,
+    )
+
     return ParticipantResponse(
         participant_id=participant.id,
         session_id=participant.session_id,
         nickname=participant.nickname,
+        access_token=token,
     )

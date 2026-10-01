@@ -13,6 +13,7 @@ class ParticipantResponse(BaseModel):
     participant_id: int
     session_id: int
     nickname: str
+    access_token: str
 
 
 # ---------- カテゴリ ----------

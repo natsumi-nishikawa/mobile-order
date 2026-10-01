@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.customer_sessions import router as customer_sessions_router
 from app.routers.customer_participants import router as customer_participants_router
@@ -9,6 +10,16 @@ from app.routers.customer_billing import router as customer_billing_router
 
 
 app = FastAPI()
+
+
+# ReactからFastAPIへの通信を許可
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 app.include_router(customer_sessions_router)
