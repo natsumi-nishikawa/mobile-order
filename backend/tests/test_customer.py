@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 
 os.environ["ENV_FILE"] = ".env.test"
 
@@ -7,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv(".env.test", override=True)
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
 
 from app.main import app
@@ -150,6 +151,7 @@ def test_customer_flow():
 
     assert response.json()["session_id"] == session_id
     assert response.json()["status"] == "active"
+    assert response.json()["table_name"] == "テストテーブル"
 
     # --------------------------------
     # 2. ニックネーム登録
@@ -165,15 +167,31 @@ def test_customer_flow():
     assert response.status_code == 200
 
     participant_id = response.json()["participant_id"]
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
     assert response.json()["nickname"] == "たろう"
+
+    # 同じSessionでは同じニックネームを登録できない
+    response = client.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "  たろう  "},
+    )
+    assert response.status_code == 409
+
+    response = client.get("/api/customer/me", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["participant_id"] == participant_id
+    assert response.json()["table_name"] == "テストテーブル"
+
+    assert client.get("/api/customer/me", headers={"Authorization": "Bearer invalid"}).status_code == 401
 
     # --------------------------------
     # 3. カテゴリ取得
     # --------------------------------
 
     response = client.get(
-        "/api/customer/categories"
+        "/api/customer/categories", headers=headers
     )
 
     assert response.status_code == 200
@@ -188,7 +206,7 @@ def test_customer_flow():
     # --------------------------------
 
     response = client.get(
-        "/api/customer/products"
+        "/api/customer/products", headers=headers
     )
 
     assert response.status_code == 200
@@ -206,9 +224,9 @@ def test_customer_flow():
     response = client.put(
         f"/api/customer/selections/{product_id}",
         json={
-            "participant_id": participant_id,
             "quantity": 2,
         },
+        headers=headers,
     )
 
     assert response.status_code == 200
@@ -221,7 +239,7 @@ def test_customer_flow():
     # --------------------------------
 
     response = client.get(
-        f"/api/customer/sessions/{session_id}/selections"
+        f"/api/customer/sessions/{session_id}/selections", headers=headers
     )
 
     assert response.status_code == 200
@@ -232,6 +250,45 @@ def test_customer_flow():
     assert selections[0]["nickname"] == "たろう"
     assert selections[0]["quantity"] == 2
 
+    # 売り切れ商品はサーバー側でも選択できない
+    with TestingSessionLocal() as db:
+        product = db.get(Product, product_id)
+        product.is_sold_out = True
+        db.commit()
+    assert client.put(
+        f"/api/customer/selections/{product_id}", json={"quantity": 3}, headers=headers
+    ).status_code == 409
+    with TestingSessionLocal() as db:
+        product = db.get(Product, product_id)
+        product.is_sold_out = False
+        db.commit()
+
+    # 別の利用者は、たろうの選択を削除できない
+    second = client.post(
+        f"/api/customer/sessions/{session_id}/participants", json={"nickname": "じろう"}
+    ).json()
+    second_headers = {"Authorization": f"Bearer {second['access_token']}"}
+    assert client.delete(
+        f"/api/customer/selections/{product_id}", headers=second_headers
+    ).status_code == 404
+
+    # 本人は選択を解除し、再び選択できる
+    assert client.delete(
+        f"/api/customer/selections/{product_id}", headers=headers
+    ).status_code == 200
+    assert client.put(
+        f"/api/customer/selections/{product_id}", json={"quantity": 2}, headers=headers
+    ).status_code == 200
+
+    # Bodyを書き換えても他人として操作できない
+    response = client.put(
+        f"/api/customer/selections/{product_id}",
+        json={"participant_id": 999999, "quantity": 3},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["quantity"] == 3
+
     # --------------------------------
     # 7. 注文確定
     # --------------------------------
@@ -239,13 +296,13 @@ def test_customer_flow():
     response = client.post(
         "/api/customer/orders",
         json={
-            "participant_id": participant_id,
         },
+        headers=headers,
     )
 
     assert response.status_code == 200
 
-    assert response.json()["total_amount"] == 1000
+    assert response.json()["total_amount"] == 1500
 
     order_id = response.json()["order_id"]
 
@@ -256,7 +313,7 @@ def test_customer_flow():
     # --------------------------------
 
     response = client.get(
-        f"/api/customer/sessions/{session_id}/selections"
+        f"/api/customer/sessions/{session_id}/selections", headers=headers
     )
 
     assert response.status_code == 200
@@ -267,7 +324,7 @@ def test_customer_flow():
     # --------------------------------
 
     response = client.get(
-        f"/api/customer/sessions/{session_id}/orders"
+        f"/api/customer/sessions/{session_id}/orders", headers=headers
     )
 
     assert response.status_code == 200
@@ -278,20 +335,59 @@ def test_customer_flow():
     assert orders[0]["order_id"] == order_id
 
     assert orders[0]["items"][0]["product_name"] == "テストドリンク"
-    assert orders[0]["items"][0]["quantity"] == 2
+    assert orders[0]["items"][0]["quantity"] == 3
     assert orders[0]["items"][0]["unit_price"] == 500
+
+    # 注文後の商品価格変更は過去注文へ影響しない。キャンセル分は会計から除く
+    with TestingSessionLocal() as db:
+        product = db.get(Product, product_id)
+        product.price = 900
+        item = db.scalar(select(OrderItem).where(OrderItem.order_id == order_id))
+        item.canceled_quantity = 1
+        item.served_quantity = 2
+        db.commit()
 
     # --------------------------------
     # 10. 会計金額
     # --------------------------------
 
     response = client.get(
-        f"/api/customer/sessions/{session_id}/bill"
+        f"/api/customer/sessions/{session_id}/bill", headers=headers
     )
 
     assert response.status_code == 200
 
     assert response.json()["total_amount"] == 1000
+
+    response = client.get(f"/api/customer/sessions/{session_id}/orders", headers=headers)
+    item = response.json()[0]["items"][0]
+    assert item["unit_price"] == 500
+    assert item["effective_quantity"] == 2
+    assert item["is_served"] is True
+
+    # 10分間操作されていない選択は自動解除される
+    assert client.put(
+        f"/api/customer/selections/{product_id}", json={"quantity": 1}, headers=headers
+    ).status_code == 200
+    with TestingSessionLocal() as db:
+        selection = db.scalar(select(Selection).where(Selection.participant_id == participant_id))
+        selection.last_selected_at = datetime.now() - timedelta(minutes=11)
+        db.commit()
+    response = client.get(f"/api/customer/sessions/{session_id}/selections", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == []
+
+    # Session終了後は復帰・操作できない
+    with TestingSessionLocal() as db:
+        session = db.get(Session, session_id)
+        session.status = "completed"
+        db.commit()
+    assert client.get("/api/customer/me", headers=headers).status_code == 401
+    assert client.put(
+        f"/api/customer/selections/{product_id}",
+        json={"quantity": 1},
+        headers=headers,
+    ).status_code == 401
 
     # --------------------------------
     # 後片付け

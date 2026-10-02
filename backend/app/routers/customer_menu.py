@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.customer_auth import CurrentCustomer, get_current_customer
 from app.models.category import Category
 from app.models.product import Product
 from app.models.product_category import ProductCategory
@@ -19,7 +20,10 @@ router = APIRouter(
     "/categories",
     response_model=list[CategoryResponse],
 )
-def get_categories(db: Session = Depends(get_db)):
+def get_categories(
+    db: Session = Depends(get_db),
+    _customer: CurrentCustomer = Depends(get_current_customer),
+):
     categories = db.scalars(
         select(Category).order_by(Category.display_order)
     ).all()
@@ -31,7 +35,10 @@ def get_categories(db: Session = Depends(get_db)):
     "/products",
     response_model=list[ProductResponse],
 )
-def get_products(db: Session = Depends(get_db)):
+def get_products(
+    db: Session = Depends(get_db),
+    _customer: CurrentCustomer = Depends(get_current_customer),
+):
     products = db.scalars(
         select(Product).order_by(
             Product.display_order,

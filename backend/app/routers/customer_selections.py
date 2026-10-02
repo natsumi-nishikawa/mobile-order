@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from datetime import timedelta
+
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.customer_auth import CurrentCustomer, get_current_customer, require_customer_session
 from app.models.participant import Participant
 from app.models.product import Product
 from app.models.selection import Selection
@@ -19,6 +22,16 @@ router = APIRouter(
 )
 
 
+def remove_expired_selections(db: Session, session_id: int) -> None:
+    participant_ids = select(Participant.id).where(Participant.session_id == session_id)
+    db.execute(
+        delete(Selection).where(
+            Selection.participant_id.in_(participant_ids),
+            Selection.last_selected_at < func.now() - timedelta(minutes=10),
+        )
+    )
+
+
 @router.get(
     "/sessions/{session_id}/selections",
     response_model=list[SelectionListItem],
@@ -26,7 +39,11 @@ router = APIRouter(
 def get_selections(
     session_id: int,
     db: Session = Depends(get_db),
+    customer: CurrentCustomer = Depends(get_current_customer),
 ):
+    require_customer_session(session_id, customer)
+    remove_expired_selections(db, session_id)
+    db.commit()
     rows = db.execute(
         select(Selection, Participant, Product)
         .join(
@@ -60,14 +77,10 @@ def update_selection(
     product_id: int,
     data: SelectionUpdate,
     db: Session = Depends(get_db),
+    customer: CurrentCustomer = Depends(get_current_customer),
 ):
-    participant = db.get(Participant, data.participant_id)
-
-    if participant is None:
-        raise HTTPException(
-            status_code=404,
-            detail="利用者が見つかりません",
-        )
+    participant = customer.participant
+    remove_expired_selections(db, customer.session.id)
 
     product = db.get(Product, product_id)
 
@@ -85,14 +98,14 @@ def update_selection(
 
     selection = db.scalar(
         select(Selection).where(
-            Selection.participant_id == data.participant_id,
+            Selection.participant_id == participant.id,
             Selection.product_id == product_id,
         )
     )
 
     if selection is None:
         selection = Selection(
-            participant_id=data.participant_id,
+            participant_id=participant.id,
             product_id=product_id,
             quantity=data.quantity,
         )
@@ -125,12 +138,12 @@ def update_selection(
 @router.delete("/selections/{product_id}")
 def delete_selection(
     product_id: int,
-    participant_id: int,
     db: Session = Depends(get_db),
+    customer: CurrentCustomer = Depends(get_current_customer),
 ):
     selection = db.scalar(
         select(Selection).where(
-            Selection.participant_id == participant_id,
+            Selection.participant_id == customer.participant.id,
             Selection.product_id == product_id,
         )
     )

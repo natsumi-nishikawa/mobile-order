@@ -40,7 +40,6 @@ class ProductResponse(BaseModel):
 # ---------- 選択中商品 ----------
 
 class SelectionUpdate(BaseModel):
-    participant_id: int
     quantity: int = Field(ge=1)
 
 
@@ -61,7 +60,7 @@ class SelectionListItem(BaseModel):
 # ---------- 注文 ----------
 
 class OrderCreate(BaseModel):
-    participant_id: int
+    pass
 
 
 class OrderCreateResponse(BaseModel):
@@ -77,6 +76,9 @@ class OrderItemResponse(BaseModel):
     unit_price: int
     canceled_quantity: int
     served_quantity: int
+    effective_quantity: int
+    line_total: int
+    is_served: bool
 
 
 class OrderResponse(BaseModel):

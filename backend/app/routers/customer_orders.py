@@ -3,9 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.customer_auth import CurrentCustomer, get_current_customer, require_customer_session
 from app.models.order import Order
 from app.models.order_item import OrderItem
-from app.models.participant import Participant
 from app.models.product import Product
 from app.models.selection import Selection
 from app.schemas.customer import (
@@ -14,6 +14,7 @@ from app.schemas.customer import (
     OrderItemResponse,
     OrderResponse,
 )
+from app.routers.customer_selections import remove_expired_selections
 
 
 router = APIRouter(
@@ -27,21 +28,17 @@ router = APIRouter(
     response_model=OrderCreateResponse,
 )
 def create_order(
-    data: OrderCreate,
+    _data: OrderCreate,
     db: Session = Depends(get_db),
+    customer: CurrentCustomer = Depends(get_current_customer),
 ):
-    participant = db.get(Participant, data.participant_id)
-
-    if participant is None:
-        raise HTTPException(
-            status_code=404,
-            detail="利用者が見つかりません",
-        )
+    participant = customer.participant
+    remove_expired_selections(db, customer.session.id)
 
     selections = db.scalars(
         select(Selection).where(
-            Selection.participant_id == data.participant_id
-        )
+            Selection.participant_id == participant.id
+        ).with_for_update()
     ).all()
 
     if not selections:
@@ -110,7 +107,9 @@ def create_order(
 def get_orders(
     session_id: int,
     db: Session = Depends(get_db),
+    customer: CurrentCustomer = Depends(get_current_customer),
 ):
+    require_customer_session(session_id, customer)
     orders = db.scalars(
         select(Order)
         .where(Order.session_id == session_id)
@@ -129,17 +128,23 @@ def get_orders(
             .where(OrderItem.order_id == order.id)
         ).all()
 
-        items = [
-            OrderItemResponse(
+        items = []
+        for item, product in rows:
+            effective_quantity = max(item.quantity - item.canceled_quantity, 0)
+            items.append(OrderItemResponse(
                 product_id=product.id,
                 product_name=product.name,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 canceled_quantity=item.canceled_quantity,
                 served_quantity=item.served_quantity,
-            )
-            for item, product in rows
-        ]
+                effective_quantity=effective_quantity,
+                line_total=effective_quantity * item.unit_price,
+                is_served=(
+                    effective_quantity > 0
+                    and item.served_quantity >= effective_quantity
+                ),
+            ))
 
         result.append(
             OrderResponse(

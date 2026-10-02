@@ -1,0 +1,22 @@
+python --version   #Pythonのバージョン確認
+python -m venv .venv   #仮想環境を作る
+.\.venv\Scripts\Activate.ps1   #仮想環境を有効にする
+pip install fastapi uvicorn   #FastAPIとUvicornをインストール
+pip show fastapi   #FastAPI確認
+pip show uvicorn   #Uvicorn確認
+pip install sqlalchemy alembic psycopg   #DBを扱うためのライブラリ
+pip show sqlalchemy   #PythonからDB・テーブルを操作する
+pip show alembic   #テーブルの作成・変更を管理する
+pip show psycopg   #PythonとPostgreSQLを接続する
+
+
+uvicorn app.main:app --reload   #バックエンド実行
+http://127.0.0.1:8000
+
+
+pip install pytest httpx   #テスト用ライブラリ
+
+$env:Path += ";C:\Program Files\PostgreSQL\17\bin"
+psql -U postgres -d mobile_order   #PostgreSQLに接続
+
+pip install PyJWT   #JWTを使用するためのライブラリ

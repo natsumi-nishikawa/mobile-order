@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.customer_auth import CurrentCustomer, get_current_customer, require_customer_session
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.schemas.customer import BillResponse
@@ -21,7 +22,9 @@ router = APIRouter(
 def get_bill(
     session_id: int,
     db: Session = Depends(get_db),
+    customer: CurrentCustomer = Depends(get_current_customer),
 ):
+    require_customer_session(session_id, customer)
     total_amount = db.scalar(
         select(
             func.coalesce(
