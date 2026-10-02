@@ -7,6 +7,7 @@ from app.routers.customer_menu import router as customer_menu_router
 from app.routers.customer_selections import router as customer_selections_router
 from app.routers.customer_orders import router as customer_orders_router
 from app.routers.customer_billing import router as customer_billing_router
+from app.routers.admin_products import router as admin_products_router
 
 
 app = FastAPI()
@@ -28,6 +29,7 @@ app.include_router(customer_menu_router)
 app.include_router(customer_selections_router)
 app.include_router(customer_orders_router)
 app.include_router(customer_billing_router)
+app.include_router(admin_products_router)
 
 
 @app.get("/")

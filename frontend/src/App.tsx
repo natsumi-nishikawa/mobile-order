@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
+import AdminProducts from './AdminProducts'
 
 const API_BASE = 'http://localhost:8000/api/customer'
 
@@ -13,7 +14,7 @@ type Order = { order_id: number; ordered_at: string; order_type: string; items: 
 
 const yen = (value: number) => `${value.toLocaleString('ja-JP')}円`
 
-function App() {
+function CustomerApp() {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [nickname, setNickname] = useState('')
   const [tableName, setTableName] = useState('')
@@ -28,6 +29,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState('')
   const [unavailable, setUnavailable] = useState('')
+  const [activeCategoryId, setActiveCategoryId] = useState<number | 'all'>('all')
 
   const tableId = useMemo(() => {
     const value = new URLSearchParams(window.location.search).get('table_id')
@@ -134,6 +136,12 @@ function App() {
   const menuCategories = products.some((product) => product.category_ids.length === 0)
     ? [...categories, { id: 0, name: 'その他', display_order: Number.MAX_SAFE_INTEGER }]
     : categories
+  const visibleProducts = activeCategoryId === 'all'
+    ? products
+    : products.filter((product) => activeCategoryId === 0 ? product.category_ids.length === 0 : product.category_ids.includes(activeCategoryId))
+  const activeCategoryName = activeCategoryId === 'all'
+    ? 'すべての商品'
+    : menuCategories.find((category) => category.id === activeCategoryId)?.name ?? 'メニュー'
 
   const placeOrder = async () => {
     if (submitting) return
@@ -159,17 +167,34 @@ function App() {
   if (loading) return <main className="app"><p>読み込み中...</p></main>
   if (!customer) return <main className="app entry"><div className="brand">MOBILE ORDER</div><h1>{tableName || 'モバイルオーダー'}</h1>{unavailable ? <div className="notice error">{unavailable}</div> : <section className="panel"><label htmlFor="nickname">ニックネーム</label><input id="nickname" value={nickname} maxLength={20} onChange={(event) => setNickname(event.target.value)} placeholder="例：たろう" autoComplete="off" /><button className="primary" disabled={submitting} onClick={handleStart}>注文をはじめる</button>{message && <p className="error-text">{message}</p>}</section>}</main>
 
-  return <main className="app">
-    <header><div><span className="table-name">{customer.table_name}</span><strong>{customer.nickname}さん</strong></div><button className="call" disabled>スタッフ呼び出し（準備中）</button></header>
+  return <div className="customer-shell">
+    <aside className="customer-sidebar">
+      <div className="sidebar-brand">MOBILE ORDER</div>
+      <h2>メニュー</h2>
+      <div className="sidebar-categories">
+        <button className={screen === 'menu' && activeCategoryId === 'all' ? 'active' : ''} onClick={() => { setActiveCategoryId('all'); setScreen('menu') }}>すべて</button>
+        {menuCategories.map((category) => <button key={category.id} className={screen === 'menu' && activeCategoryId === category.id ? 'active' : ''} onClick={() => { setActiveCategoryId(category.id); setScreen('menu') }}>{category.name}</button>)}
+      </div>
+      <div className="sidebar-links">
+        <button className={screen === 'history' ? 'active' : ''} onClick={openHistory}>注文履歴</button>
+        <button className={screen === 'bill' ? 'active' : ''} onClick={openBill}>お会計</button>
+      </div>
+    </aside>
+    <main className="app customer-main">
+    <header className="customer-header"><div><span className="table-name">{customer.table_name}</span><strong>{customer.nickname}さん</strong></div><button className="call" disabled>スタッフ呼び出し（準備中）</button></header>
     {message && <div className="notice error">{message}</div>}
 
     {screen === 'menu' && <>
-      <h1>メニュー</h1>
-      {menuCategories.map((category) => <section key={category.id}><h2 className="category">{category.name}</h2><div className="product-list">{products.filter((product) => category.id === 0 ? product.category_ids.length === 0 : product.category_ids.includes(category.id)).map((product) => {
+      <div className="mobile-category-tabs">
+        <button className={activeCategoryId === 'all' ? 'active' : ''} onClick={() => setActiveCategoryId('all')}>すべて</button>
+        {menuCategories.map((category) => <button key={category.id} className={activeCategoryId === category.id ? 'active' : ''} onClick={() => setActiveCategoryId(category.id)}>{category.name}</button>)}
+      </div>
+      <div className="menu-title"><div><span>MENU</span><h1>{activeCategoryName}</h1></div><p>{visibleProducts.length}品</p></div>
+      {visibleProducts.length === 0 ? <div className="empty-products">このカテゴリの商品はありません</div> : <div className="product-list">{visibleProducts.map((product) => {
         const quantity = myQuantity(product.id); const productSelections = selections.filter((item) => item.product_id === product.id); const total = productSelections.reduce((sum, item) => sum + item.quantity, 0)
-        return <article className={`product ${product.is_sold_out ? 'sold-out' : ''}`} key={product.id}>{product.image_url && <img src={product.image_url} alt="" />}<div className="product-body"><div className="product-title"><h3>{product.name}</h3><strong>{yen(product.price)}</strong></div>{product.description && <p>{product.description}</p>}{product.is_sold_out && <span className="badge">売り切れ</span>}{total > 0 && <p className="selection-info">{productSelections.length > 1 ? `みんなで${total}個選択中` : `${productSelections[0].nickname}さんが${total}個選択中`}</p>}<div className="stepper"><button disabled={quantity === 0 || product.is_sold_out} onClick={() => changeQuantity(product, quantity - 1)}>−</button><span>{quantity}</span><button disabled={product.is_sold_out} onClick={() => changeQuantity(product, quantity + 1)}>＋</button></div></div></article>
-      })}</div></section>)}
-      <div className="bottom-space" /><nav><button onClick={openHistory}>注文履歴</button><button onClick={openBill}>会計</button><button className="primary" disabled={mySelections.length === 0} onClick={() => setScreen('confirm')}>注文する ({mySelections.reduce((sum, item) => sum + item.quantity, 0)})</button></nav>
+        return <article className={`product ${product.is_sold_out ? 'sold-out' : ''}`} key={product.id}><div className="product-image">{product.image_url ? <img src={product.image_url} alt={product.name} /> : <div className="image-placeholder">NO IMAGE</div>}</div><div className="product-body"><div className="product-title"><h3>{product.name}</h3><strong>{yen(product.price)}</strong></div><p className="product-description">{product.description || '商品説明はありません'}</p><div className="product-status">{product.is_sold_out && <span className="badge">売り切れ</span>}{total > 0 && <p className="selection-info">{productSelections.length > 1 ? `みんなで${total}個選択中` : `${productSelections[0].nickname}さんが${total}個選択中`}</p>}</div><div className="stepper"><button aria-label={`${product.name}を減らす`} disabled={quantity === 0 || product.is_sold_out} onClick={() => changeQuantity(product, quantity - 1)}>−</button><span>{quantity}</span><button aria-label={`${product.name}を増やす`} disabled={product.is_sold_out} onClick={() => changeQuantity(product, quantity + 1)}>＋</button></div></div></article>
+      })}</div>}
+      <div className="bottom-space" /><nav className="customer-bottom-nav"><button onClick={openHistory}>注文履歴</button><button onClick={openBill}>会計</button><button className="primary" disabled={mySelections.length === 0} onClick={() => setScreen('confirm')}>注文する ({mySelections.reduce((sum, item) => sum + item.quantity, 0)})</button></nav>
     </>}
 
     {screen === 'confirm' && <section><button className="back" onClick={() => setScreen('menu')}>← メニューへ</button><h1>注文確認</h1><div className="panel">{selectedProducts.map(({ selection, product }) => <div className="line" key={product.id}><div><strong>{product.name}</strong><small>{yen(product.price)} × {selection.quantity}</small></div><strong>{yen(product.price * selection.quantity)}</strong></div>)}<div className="total"><span>合計</span><strong>{yen(confirmTotal)}</strong></div><button className="primary" disabled={submitting || selectedProducts.length === 0} onClick={placeOrder}>{submitting ? '注文中...' : '注文する'}</button></div></section>}
@@ -179,7 +204,12 @@ function App() {
     {screen === 'history' && <section><button className="back" onClick={() => setScreen('menu')}>← メニューへ</button><h1>注文履歴</h1>{orders.length === 0 ? <div className="panel">注文はまだありません。</div> : orders.map((order) => <article className="panel order" key={order.order_id}><time>{new Date(order.ordered_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</time>{order.items.map((item) => <div className="line" key={item.product_id}><div><strong>{item.product_name} ×{item.effective_quantity}</strong>{item.canceled_quantity > 0 && <small>{item.canceled_quantity}個キャンセル済み</small>}</div><span className={item.is_served ? 'served' : 'waiting'}>{item.is_served ? '提供済み' : '準備中'}</span></div>)}</article>)}</section>}
 
     {screen === 'bill' && <section><button className="back" onClick={() => setScreen('menu')}>← メニューへ</button><h1>会計</h1><div className="panel bill"><p>現在の合計金額</p><strong className="bill-total">{yen(billTotal)}</strong><label htmlFor="people">割り勘する人数</label><input id="people" type="number" min="1" step="1" value={splitCount} onChange={(event) => setSplitCount(Math.max(1, Math.floor(Number(event.target.value) || 1)))} /><div className="split"><span>1人あたり</span><strong>{yen(Math.ceil(billTotal / splitCount))}</strong></div><small>お支払いはスタッフへお願いします。</small></div></section>}
-  </main>
+    </main>
+  </div>
+}
+
+function App() {
+  return window.location.pathname.startsWith('/admin') ? <AdminProducts /> : <CustomerApp />
 }
 
 export default App

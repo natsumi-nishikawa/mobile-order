@@ -8,6 +8,7 @@ from app.models.category import Category
 from app.models.product import Product
 from app.models.product_category import ProductCategory
 from app.schemas.customer import CategoryResponse, ProductResponse
+from app.services.product_images import create_image_url
 
 
 router = APIRouter(
@@ -61,7 +62,7 @@ def get_products(
                 name=product.name,
                 price=product.price,
                 description=product.description,
-                image_url=product.image_url,
+                image_url=create_image_url(product.image_url),
                 is_sold_out=product.is_sold_out,
                 display_order=product.display_order,
                 category_ids=list(category_ids),
