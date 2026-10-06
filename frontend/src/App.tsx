@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import AdminProducts from './AdminProducts'
+import AdminApp from './AdminApp'
 
 const API_BASE = 'http://localhost:8000/api/customer'
 
@@ -209,7 +209,7 @@ function CustomerApp() {
 }
 
 function App() {
-  return window.location.pathname.startsWith('/admin') ? <AdminProducts /> : <CustomerApp />
+  return window.location.pathname.startsWith('/admin') ? <AdminApp /> : <CustomerApp />
 }
 
 export default App

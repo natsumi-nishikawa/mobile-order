@@ -9,9 +9,10 @@ pip show sqlalchemy   #PythonからDB・テーブルを操作する
 pip show alembic   #テーブルの作成・変更を管理する
 pip show psycopg   #PythonとPostgreSQLを接続する
 
-
+.\.venv\Scripts\Activate.ps1
 uvicorn app.main:app --reload   #バックエンド実行
 http://127.0.0.1:8000
+
 
 
 pip install pytest httpx   #テスト用ライブラリ

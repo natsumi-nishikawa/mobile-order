@@ -1,0 +1,251 @@
+.admin-shell {
+    min-height: 100svh;
+    background: #f8f9fb;
+    color: #20242b
+}
+
+.admin-nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    min-height: 64px;
+    padding: 0 max(20px, calc((100vw - 1050px)/2 + 24px));
+    border-bottom: 1px solid #dfe3e8;
+    background: #fff
+}
+
+.admin-nav a {
+    text-decoration: none;
+    color: #48515d
+}
+
+.admin-nav-brand {
+    display: flex;
+    flex-direction: column;
+    font-size: .7rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    line-height: 1.25
+}
+
+.admin-nav-brand strong {
+    color: #315f9b;
+    font-size: .82rem
+}
+
+.admin-nav-links {
+    display: flex;
+    align-self: stretch;
+    gap: 4px;
+    overflow-x: auto
+}
+
+.admin-nav-links a {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+    font-size: .9rem;
+    font-weight: 650
+}
+
+.admin-nav-links a.active {
+    border-color: #315f9b;
+    color: #234d84
+}
+
+.admin-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px
+}
+
+.admin-menu-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 20px 48px 20px 20px;
+    border: 1px solid #dfe3e8;
+    border-radius: 8px;
+    background: #fff;
+    color: #20242b;
+    text-decoration: none
+}
+
+.admin-menu-item strong {
+    font-size: 1.05rem
+}
+
+.admin-menu-item span {
+    color: #68727e;
+    font-size: .88rem
+}
+
+.admin-menu-item b {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    translate: 0 -50%;
+    color: #315f9b;
+    font-size: 1.5rem
+}
+
+.business-hours-list {
+    border: 1px solid #dfe3e8;
+    border-radius: 8px;
+    background: #fff
+}
+
+.business-hour-row {
+    display: grid;
+    grid-template-columns: 110px 90px 1fr 1fr;
+    align-items: center;
+    gap: 18px;
+    padding: 16px 18px;
+    border-bottom: 1px solid #e8ebef
+}
+
+.business-hour-row:last-child {
+    border-bottom: 0
+}
+
+.business-hour-row label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #68727e;
+    font-size: .82rem
+}
+
+.business-hour-row input[type=time] {
+    width: 100%;
+    min-height: 40px;
+    padding: 7px;
+    border: 1px solid #bfc6cf;
+    border-radius: 6px
+}
+
+.admin-toggle span {
+    font-weight: 700;
+    color: #315f9b
+}
+
+.admin-back-link,
+.table-link {
+    color: #315f9b;
+    font-weight: 700;
+    text-decoration: none
+}
+
+.danger-button {
+    border-color: #b84235 !important;
+    color: #a33328;
+    background: #fff !important;
+    font-weight: 700
+}
+
+.accounting-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 0 0 24px;
+    border: 1px solid #dfe3e8;
+    border-radius: 8px;
+    background: #fff
+}
+
+.accounting-summary div {
+    padding: 18px;
+    border-right: 1px solid #e8ebef
+}
+
+.accounting-summary div:last-child {
+    border: 0
+}
+
+.accounting-summary dt {
+    color: #68727e;
+    font-size: .78rem
+}
+
+.accounting-summary dd {
+    margin: 6px 0 0;
+    font-weight: 750
+}
+
+.accounting-orders {
+    display: grid;
+    gap: 20px
+}
+
+.accounting-orders section>header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px
+}
+
+.accounting-orders time {
+    color: #68727e;
+    font-size: .85rem
+}
+
+@media(max-width:760px) {
+    .admin-nav {
+        position: static;
+        display: block;
+        padding: 12px 14px 0
+    }
+
+    .admin-nav-brand {
+        margin-bottom: 8px
+    }
+
+    .admin-nav-links {
+        min-height: 44px
+    }
+
+    .admin-nav-links a {
+        padding: 0 10px;
+        font-size: .82rem
+    }
+
+    .admin-menu-grid {
+        grid-template-columns: 1fr
+    }
+
+    .business-hour-row {
+        grid-template-columns: 1fr 90px;
+        gap: 12px
+    }
+
+    .business-hour-row label:not(.admin-toggle) {
+        display: grid;
+        grid-template-columns: 40px 1fr
+    }
+
+    .accounting-summary {
+        grid-template-columns: 1fr
+    }
+
+    .accounting-summary div {
+        border-right: 0;
+        border-bottom: 1px solid #e8ebef
+    }
+
+    .accounting-detail-header {
+        gap: 12px
+    }
+
+    .accounting-detail-header .danger-button {
+        max-width: 150px
+    }
+
+    .accounting-orders section>header {
+        flex-direction: column;
+        gap: 4px
+    }
+}

@@ -8,6 +8,10 @@ from app.routers.customer_selections import router as customer_selections_router
 from app.routers.customer_orders import router as customer_orders_router
 from app.routers.customer_billing import router as customer_billing_router
 from app.routers.admin_products import router as admin_products_router
+from app.routers.admin_categories import router as admin_categories_router
+from app.routers.admin_tables import router as admin_tables_router
+from app.routers.admin_business_hours import router as admin_business_hours_router
+from app.routers.admin_accounting import router as admin_accounting_router
 
 
 app = FastAPI()
@@ -30,6 +34,10 @@ app.include_router(customer_selections_router)
 app.include_router(customer_orders_router)
 app.include_router(customer_billing_router)
 app.include_router(admin_products_router)
+app.include_router(admin_categories_router)
+app.include_router(admin_tables_router)
+app.include_router(admin_business_hours_router)
+app.include_router(admin_accounting_router)
 
 
 @app.get("/")
