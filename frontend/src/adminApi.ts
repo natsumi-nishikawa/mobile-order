@@ -1,4 +1,7 @@
+import { storeFetch } from './storeAuth'
+
 export const ADMIN_API = 'http://localhost:8000/api/admin'
+export const adminFetch = storeFetch
 
 export type Category = { id: number; name: string; display_order: number }
 export type DiningTable = { id: number; table_name: string }

@@ -23,6 +23,7 @@ from app.models.product_category import ProductCategory
 from app.models.selection import Selection
 from app.models.session import Session
 from app.models.table import Table
+from app.store_auth import StoreUser, require_admin
 
 
 TEST_DATABASE_URL = os.getenv("DATABASE_URL")
@@ -42,6 +43,7 @@ def override_get_db():
 
 
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[require_admin] = lambda: StoreUser("test-admin", "admin", frozenset({"admin"}))
 client = TestClient(app)
 
 

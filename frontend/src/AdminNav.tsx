@@ -1,4 +1,5 @@
 import './AdminCommon.css'
+import { logoutStore } from './storeAuth'
 
 const items = [
   ['/admin', '管理メニュー'],
@@ -7,6 +8,7 @@ const items = [
   ['/admin/tables', 'テーブル管理'],
   ['/admin/business-hours', '営業時間管理'],
   ['/admin/accounting', '会計履歴'],
+  ['/admin/staff-users', 'スタッフ管理'],
 ]
 
 export default function AdminNav() {
@@ -15,6 +17,6 @@ export default function AdminNav() {
     <a className="admin-nav-brand" href="/admin">MOBILE ORDER <strong>ADMIN</strong></a>
     <div className="admin-nav-links">{items.slice(1).map(([href, label]) =>
       <a key={href} className={path === href || path.startsWith(`${href}/`) ? 'active' : ''} href={href}>{label}</a>
-    )}</div>
+    )}<button className="admin-logout" onClick={logoutStore}>ログアウト</button></div>
   </nav>
 }

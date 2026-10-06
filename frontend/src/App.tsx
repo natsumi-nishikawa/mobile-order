@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import AdminApp from './AdminApp'
+import StaffApp from './StaffApp'
+import { StoreCallback, StoreGuard, StoreLogin } from './storeAuth'
+import './StoreAuth.css'
 
 const API_BASE = 'http://localhost:8000/api/customer'
 
@@ -209,7 +212,12 @@ function CustomerApp() {
 }
 
 function App() {
-  return window.location.pathname.startsWith('/admin') ? <AdminApp /> : <CustomerApp />
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('code') && params.has('state')) return <StoreCallback />
+  if (window.location.pathname === '/login') return <StoreLogin />
+  if (window.location.pathname.startsWith('/admin')) return <StoreGuard role="admin"><AdminApp /></StoreGuard>
+  if (window.location.pathname.startsWith('/staff')) return <StoreGuard role="staff"><StaffApp /></StoreGuard>
+  return <CustomerApp />
 }
 
 export default App

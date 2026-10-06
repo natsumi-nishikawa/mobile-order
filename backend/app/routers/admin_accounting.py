@@ -15,9 +15,10 @@ from app.schemas.admin_accounting import (
     AdminAccountingOrderItem,
     AdminSessionReopenResponse,
 )
+from app.store_auth import require_admin
 
 
-router = APIRouter(prefix="/api/admin/accounting", tags=["Admin accounting"])
+router = APIRouter(prefix="/api/admin/accounting", tags=["Admin accounting"], dependencies=[Depends(require_admin)])
 
 
 def _total_subquery():

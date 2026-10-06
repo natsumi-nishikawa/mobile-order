@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ADMIN_API, apiError } from './adminApi'
+import { ADMIN_API, adminFetch, apiError } from './adminApi'
 import type { DiningTable } from './adminApi'
 
 export default function AdminTables() {
@@ -9,20 +9,20 @@ export default function AdminTables() {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const load = async () => { const response = await fetch(`${ADMIN_API}/tables`); if (response.ok) setItems(await response.json()); else setError(await apiError(response, 'テーブルを取得できませんでした')) }
+  const load = async () => { const response = await adminFetch(`${ADMIN_API}/tables`); if (response.ok) setItems(await response.json()); else setError(await apiError(response, 'テーブルを取得できませんでした')) }
   // oxlint-disable-next-line react/set-state-in-effect
   useEffect(() => { load() }, [])
   const save = async (event: FormEvent) => {
     event.preventDefault(); setError('')
     if (!name.trim()) { setError('テーブル名を入力してください'); return }
     const isNew = editing === 'new'
-    const response = await fetch(`${ADMIN_API}/tables${isNew ? '' : `/${editing!.id}`}`, { method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ table_name: name.trim() }) })
+    const response = await adminFetch(`${ADMIN_API}/tables${isNew ? '' : `/${editing!.id}`}`, { method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ table_name: name.trim() }) })
     if (!response.ok) { setError(await apiError(response, '保存できませんでした')); return }
     setEditing(null); setMessage(isNew ? 'テーブルを追加しました' : 'テーブルを更新しました'); await load()
   }
   const remove = async (item: DiningTable) => {
     if (!window.confirm(`「${item.table_name}」を削除しますか？`)) return
-    const response = await fetch(`${ADMIN_API}/tables/${item.id}`, { method: 'DELETE' })
+    const response = await adminFetch(`${ADMIN_API}/tables/${item.id}`, { method: 'DELETE' })
     if (!response.ok) { setError(await apiError(response, '削除できませんでした')); return }
     setMessage('テーブルを削除しました'); setError(''); await load()
   }

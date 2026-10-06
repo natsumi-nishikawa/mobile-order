@@ -20,7 +20,10 @@ from app.services.product_images import (
 )
 
 
-router = APIRouter(prefix="/api/admin", tags=["Admin products"])
+from app.store_auth import require_admin
+
+
+router = APIRouter(prefix="/api/admin", tags=["Admin products"], dependencies=[Depends(require_admin)])
 
 
 def validate_product(data: AdminProductWrite, db: Session) -> tuple[str, list[Category]]:

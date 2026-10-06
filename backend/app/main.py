@@ -12,6 +12,8 @@ from app.routers.admin_categories import router as admin_categories_router
 from app.routers.admin_tables import router as admin_tables_router
 from app.routers.admin_business_hours import router as admin_business_hours_router
 from app.routers.admin_accounting import router as admin_accounting_router
+from app.routers.staff import router as staff_router
+from app.routers.admin_staff import router as admin_staff_router
 
 
 app = FastAPI()
@@ -38,6 +40,8 @@ app.include_router(admin_categories_router)
 app.include_router(admin_tables_router)
 app.include_router(admin_business_hours_router)
 app.include_router(admin_accounting_router)
+app.include_router(staff_router)
+app.include_router(admin_staff_router)
 
 
 @app.get("/")

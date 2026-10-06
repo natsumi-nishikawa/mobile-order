@@ -6,9 +6,10 @@ from app.database import get_db
 from app.models.session import Session as SessionModel
 from app.models.table import Table
 from app.schemas.admin_table import AdminTableResponse, AdminTableWrite
+from app.store_auth import require_admin
 
 
-router = APIRouter(prefix="/api/admin/tables", tags=["Admin tables"])
+router = APIRouter(prefix="/api/admin/tables", tags=["Admin tables"], dependencies=[Depends(require_admin)])
 
 
 def _clean_name(name: str) -> str:

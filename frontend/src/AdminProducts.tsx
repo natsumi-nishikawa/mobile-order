@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import './AdminProducts.css'
+import { adminFetch } from './adminApi'
 
 const ADMIN_API = 'http://localhost:8000/api/admin'
 
@@ -33,7 +34,7 @@ export default function AdminProducts() {
     setLoading(true)
     try {
       const [productsResponse, categoriesResponse] = await Promise.all([
-        fetch(`${ADMIN_API}/products`), fetch(`${ADMIN_API}/categories`),
+        adminFetch(`${ADMIN_API}/products`), adminFetch(`${ADMIN_API}/categories`),
       ])
       if (!productsResponse.ok || !categoriesResponse.ok) throw new Error()
       setProducts(await productsResponse.json())
@@ -78,7 +79,7 @@ export default function AdminProducts() {
     setSaving(true)
     try {
       const isNew = editing === 'new'
-      const response = await fetch(`${ADMIN_API}/products${isNew ? '' : `/${editing!.id}`}`, {
+      const response = await adminFetch(`${ADMIN_API}/products${isNew ? '' : `/${editing!.id}`}`, {
         method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, name: form.name.trim(), price, display_order: displayOrder, description: form.description.trim() || null, image_url: null }),
       })
@@ -87,7 +88,7 @@ export default function AdminProducts() {
       if (imageFile) {
         const imageData = new FormData()
         imageData.append('image', imageFile)
-        const imageResponse = await fetch(`${ADMIN_API}/products/${savedProduct.id}/image`, { method: 'POST', body: imageData })
+        const imageResponse = await adminFetch(`${ADMIN_API}/products/${savedProduct.id}/image`, { method: 'POST', body: imageData })
         if (!imageResponse.ok) { const data = await imageResponse.json().catch(() => ({})); setError(`商品情報は保存されましたが、画像を保存できませんでした：${data.detail ?? '画像アップロードエラー'}`); await loadData(); return }
       }
       clearPreview(); setEditing(null); setMessage(isNew ? '商品を登録しました' : '商品を更新しました'); await loadData()
@@ -98,7 +99,7 @@ export default function AdminProducts() {
   const remove = async (product: Product) => {
     if (!window.confirm(`「${product.name}」を削除しますか？`)) return
     setError(''); setMessage('')
-    const response = await fetch(`${ADMIN_API}/products/${product.id}`, { method: 'DELETE' })
+    const response = await adminFetch(`${ADMIN_API}/products/${product.id}`, { method: 'DELETE' })
     if (!response.ok) { const data = await response.json().catch(() => ({})); setError(data.detail ?? '削除できませんでした'); return }
     setMessage('商品を削除しました'); await loadData()
   }

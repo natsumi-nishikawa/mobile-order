@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ADMIN_API, apiError } from './adminApi'
+import { ADMIN_API, adminFetch, apiError } from './adminApi'
 import type { BusinessHour } from './adminApi'
 
 const dayNames = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日']
@@ -12,7 +12,7 @@ export default function AdminBusinessHours() {
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
   useEffect(() => { (async () => {
-    const response = await fetch(`${ADMIN_API}/business-hours`)
+    const response = await adminFetch(`${ADMIN_API}/business-hours`)
     if (!response.ok) { setError(await apiError(response, '営業時間を取得できませんでした')); return }
     const existing: BusinessHour[] = await response.json()
     setItems(defaults.map((fallback) => existing.find((item) => item.day_of_week === fallback.day_of_week) ?? fallback))
@@ -22,7 +22,7 @@ export default function AdminBusinessHours() {
     setSaving(true); setError(''); setMessage('')
     const invalid = items.some((item) => item.is_open && (!item.opening_time || !item.closing_time || item.opening_time === item.closing_time))
     if (invalid) { setError('営業日は異なる開店時間と閉店時間を指定してください'); setSaving(false); return }
-    const response = await fetch(`${ADMIN_API}/business-hours`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items.map((item) => ({ day_of_week: item.day_of_week, is_open: item.is_open, opening_time: item.is_open ? timeValue(item.opening_time) : null, closing_time: item.is_open ? timeValue(item.closing_time) : null }))) })
+    const response = await adminFetch(`${ADMIN_API}/business-hours`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items.map((item) => ({ day_of_week: item.day_of_week, is_open: item.is_open, opening_time: item.is_open ? timeValue(item.opening_time) : null, closing_time: item.is_open ? timeValue(item.closing_time) : null }))) })
     if (!response.ok) setError(await apiError(response, '営業時間を保存できませんでした'))
     else { setItems(await response.json()); setMessage('営業時間を保存しました') }
     setSaving(false)

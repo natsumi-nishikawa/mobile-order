@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.database import Base, get_db
+from app.store_auth import StoreUser, require_admin
 
 from app.models.table import Table
 from app.models.session import Session
@@ -53,6 +54,7 @@ def override_get_db():
 
 
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[require_admin] = lambda: StoreUser("test-admin", "admin", frozenset({"admin"}))
 
 client = TestClient(app)
 

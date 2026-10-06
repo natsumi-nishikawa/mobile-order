@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ADMIN_API, apiError } from './adminApi'
+import { ADMIN_API, adminFetch, apiError } from './adminApi'
 import type { AccountingDetail, AccountingHistory } from './adminApi'
 
 const yen = (value: number) => `${value.toLocaleString('ja-JP')}円`
@@ -13,13 +13,13 @@ export default function AdminAccounting() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   useEffect(() => { (async () => {
-    const response = await fetch(`${ADMIN_API}/accounting/history${showingDetail ? `/${detailId}` : ''}`)
+    const response = await adminFetch(`${ADMIN_API}/accounting/history${showingDetail ? `/${detailId}` : ''}`)
     if (!response.ok) { setError(await apiError(response, '会計履歴を取得できませんでした')); return }
     if (showingDetail) setDetail(await response.json()); else setHistory(await response.json())
   })() }, [detailId, showingDetail])
   const reopen = async () => {
     if (!detail || !window.confirm('この会計完了を取り消し、利用中に戻しますか？')) return
-    const response = await fetch(`${ADMIN_API}/accounting/history/${detail.session_id}/reopen`, { method: 'POST' })
+    const response = await adminFetch(`${ADMIN_API}/accounting/history/${detail.session_id}/reopen`, { method: 'POST' })
     if (!response.ok) { setError(await apiError(response, '会計完了を取り消せませんでした')); return }
     setMessage('会計完了を取り消しました'); setDetail(null)
   }

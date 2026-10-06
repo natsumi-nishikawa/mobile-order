@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.business_hour import BusinessHour
 from app.schemas.admin_business_hour import AdminBusinessHourResponse, AdminBusinessHourWrite
+from app.store_auth import require_admin
 
 
-router = APIRouter(prefix="/api/admin/business-hours", tags=["Admin business hours"])
+router = APIRouter(prefix="/api/admin/business-hours", tags=["Admin business hours"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=list[AdminBusinessHourResponse])

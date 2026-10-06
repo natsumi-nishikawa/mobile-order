@@ -6,9 +6,10 @@ from app.database import get_db
 from app.models.category import Category
 from app.models.product_category import ProductCategory
 from app.schemas.admin_category import AdminCategoryResponse, AdminCategoryWrite
+from app.store_auth import require_admin
 
 
-router = APIRouter(prefix="/api/admin/categories", tags=["Admin categories"])
+router = APIRouter(prefix="/api/admin/categories", tags=["Admin categories"], dependencies=[Depends(require_admin)])
 
 
 def _clean_name(name: str) -> str:
