@@ -26,6 +26,7 @@ function CustomerApp() {
   const [products, setProducts] = useState<Product[]>([])
   const [selections, setSelections] = useState<Selection[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [historyQuantities, setHistoryQuantities] = useState<Record<string, number>>({})
   const [billTotal, setBillTotal] = useState(0)
   const [splitCount, setSplitCount] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -156,10 +157,62 @@ function CustomerApp() {
     } finally { setSubmitting(false) }
   }
 
+  const historyItemKey = (orderId: number, productId: number) => `${orderId}:${productId}`
+  const changeHistoryQuantity = (orderId: number, item: OrderItem, quantity: number) => {
+    if (item.effective_quantity <= 0) return
+    const product = products.find((current) => current.id === item.product_id)
+    if (!product || product.is_sold_out) return
+    const key = historyItemKey(orderId, item.product_id)
+    setHistoryQuantities((current) => ({
+      ...current,
+      [key]: current[key] === 0 || current[key] === undefined ? item.effective_quantity : Math.max(0, quantity),
+    }))
+  }
+  const addHistorySelections = async () => {
+    if (submitting) return
+    const additions = new Map<number, number>()
+    for (const order of orders) {
+      for (const item of order.items) {
+        const quantity = historyQuantities[historyItemKey(order.order_id, item.product_id)] ?? 0
+        if (quantity > 0) additions.set(item.product_id, (additions.get(item.product_id) ?? 0) + quantity)
+      }
+    }
+    if (additions.size === 0) { setMessage('追加する商品を選択してください'); return }
+
+    const unavailableItems = [...additions.keys()].filter((productId) => {
+      const product = products.find((current) => current.id === productId)
+      return !product || product.is_sold_out
+    })
+    if (unavailableItems.length > 0) { setMessage('売り切れ、または現在販売されていない商品は追加できません'); return }
+
+    setSubmitting(true); setMessage('')
+    const completedProductIds: number[] = []
+    try {
+      for (const [productId, addedQuantity] of additions) {
+        const response = await authFetch(`/selections/${productId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ quantity: myQuantity(productId) + addedQuantity }),
+        })
+        if (!response.ok) {
+          await refreshSelections()
+          setHistoryQuantities((current) => Object.fromEntries(
+            Object.entries(current).map(([key, quantity]) => [key, completedProductIds.includes(Number(key.split(':')[1])) ? 0 : quantity]),
+          ))
+          await showError(response, '商品をSelectionへ追加できませんでした')
+          return
+        }
+        completedProductIds.push(productId)
+      }
+      await refreshSelections()
+      setHistoryQuantities({})
+      setScreen('menu')
+    } finally { setSubmitting(false) }
+  }
+
   const openHistory = async () => {
     if (!customer) return
     const response = await authFetch(`/sessions/${customer.session_id}/orders`)
-    if (response.ok) { setOrders(await response.json()); setScreen('history') } else await showError(response, '注文履歴を取得できませんでした')
+    if (response.ok) { setOrders(await response.json()); setHistoryQuantities({}); setScreen('history') } else await showError(response, '注文履歴を取得できませんでした')
   }
   const openBill = async () => {
     if (!customer) return
@@ -204,7 +257,13 @@ function CustomerApp() {
 
     {screen === 'complete' && <section className="center"><div className="complete-mark">✓</div><h1>注文を受け付けました</h1><p>商品が届くまでお待ちください。</p><button className="primary" onClick={() => setScreen('menu')}>メニューへ戻る</button><button onClick={openHistory}>注文履歴を見る</button></section>}
 
-    {screen === 'history' && <section><button className="back" onClick={() => setScreen('menu')}>← メニューへ</button><h1>注文履歴</h1>{orders.length === 0 ? <div className="panel">注文はまだありません。</div> : orders.map((order) => <article className="panel order" key={order.order_id}><time>{new Date(order.ordered_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</time>{order.items.map((item) => <div className="line" key={item.product_id}><div><strong>{item.product_name} ×{item.effective_quantity}</strong>{item.canceled_quantity > 0 && <small>{item.canceled_quantity}個キャンセル済み</small>}</div><span className={item.is_served ? 'served' : 'waiting'}>{item.is_served ? '提供済み' : '準備中'}</span></div>)}</article>)}</section>}
+    {screen === 'history' && <section><button className="back" onClick={() => setScreen('menu')}>← メニューへ</button><h1>注文履歴</h1>{orders.length === 0 ? <div className="panel">注文はまだありません。</div> : <>{orders.map((order) => <article className="panel order" key={order.order_id}><time>{new Date(order.ordered_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</time>{order.items.map((item) => {
+      const product = products.find((current) => current.id === item.product_id)
+      const unavailableReason = item.effective_quantity <= 0 ? 'キャンセル済みのため追加できません' : !product ? '現在販売されていないため追加できません' : product.is_sold_out ? '売り切れのため追加できません' : ''
+      const key = historyItemKey(order.order_id, item.product_id)
+      const reorderQuantity = historyQuantities[key] ?? 0
+      return <div className="history-item" key={item.product_id}><div className="line"><div><strong>{item.product_name} ×{item.effective_quantity}</strong>{item.canceled_quantity > 0 && <small>{item.canceled_quantity}個キャンセル済み</small>}{product && <small>現在価格：{yen(product.price)}</small>}{unavailableReason && <small className="reorder-unavailable">{unavailableReason}</small>}</div><span className={item.is_served ? 'served' : 'waiting'}>{item.is_served ? '提供済み' : '準備中'}</span></div><div className="history-stepper"><button aria-label={`${item.product_name}の再注文数量を減らす`} disabled={reorderQuantity === 0 || Boolean(unavailableReason)} onClick={() => changeHistoryQuantity(order.order_id, item, reorderQuantity - 1)}>−</button><span>{reorderQuantity}</span><button aria-label={`${item.product_name}の再注文数量を増やす`} disabled={Boolean(unavailableReason)} onClick={() => changeHistoryQuantity(order.order_id, item, reorderQuantity + 1)}>＋</button></div></div>
+    })}</article>)}<button className="primary history-order-action" disabled={submitting || Object.values(historyQuantities).every((quantity) => quantity === 0)} onClick={addHistorySelections}>{submitting ? '追加中...' : `選択した商品を追加 (${Object.values(historyQuantities).reduce((sum, quantity) => sum + quantity, 0)})`}</button></>}</section>}
 
     {screen === 'bill' && <section><button className="back" onClick={() => setScreen('menu')}>← メニューへ</button><h1>会計</h1><div className="panel bill"><p>現在の合計金額</p><strong className="bill-total">{yen(billTotal)}</strong><label htmlFor="people">割り勘する人数</label><input id="people" type="number" min="1" step="1" value={splitCount} onChange={(event) => setSplitCount(Math.max(1, Math.floor(Number(event.target.value) || 1)))} /><div className="split"><span>1人あたり</span><strong>{yen(Math.ceil(billTotal / splitCount))}</strong></div><small>お支払いはスタッフへお願いします。</small></div></section>}
     </main>

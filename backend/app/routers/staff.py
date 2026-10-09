@@ -240,6 +240,9 @@ def create_order(data: StaffOrderCreate, db: Session = Depends(get_db)):
     ).all()}
     if len(products) != len(product_ids):
         raise HTTPException(status_code=404, detail="商品が見つかりません")
+    hidden = [products[item.product_id].name for item in data.items if products[item.product_id].is_deleted or not products[item.product_id].is_visible]
+    if hidden:
+        raise HTTPException(status_code=409, detail=f"{hidden[0]}は現在販売されていません")
     sold_out = [products[item.product_id].name for item in data.items if products[item.product_id].is_sold_out]
     if sold_out:
         raise HTTPException(status_code=409, detail=f"{sold_out[0]}は売り切れです")

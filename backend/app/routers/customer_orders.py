@@ -68,6 +68,9 @@ def create_order(
                 detail="商品が見つかりません",
             )
 
+        if product.is_deleted or not product.is_visible:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=f"{product.name}は現在販売されていません")
         if product.is_sold_out:
             db.rollback()
             raise HTTPException(

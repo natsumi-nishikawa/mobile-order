@@ -16,6 +16,11 @@
     border: 0
 }
 
+.admin-header-actions {
+    display: flex;
+    gap: 8px
+}
+
 .admin-header small {
     font-weight: 800;
     letter-spacing: .15em;
@@ -117,6 +122,16 @@
 .status.sold {
     color: #9b3826;
     background: #fbe9e5
+}
+
+.status.hidden {
+    color: #59616b;
+    background: #e8ebef
+}
+
+.status.deleted {
+    color: #7a3027;
+    background: #f2dedb
 }
 
 .actions {
@@ -249,6 +264,11 @@
 
     .admin-header {
         align-items: flex-end
+    }
+
+    .admin-header-actions {
+        align-items: stretch;
+        flex-direction: column
     }
 
     .admin-app h1 {

@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.category import Category
-from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.product_category import ProductCategory
 from app.models.selection import Selection
@@ -53,6 +52,8 @@ def product_response(product: Product, db: Session) -> AdminProductResponse:
         price=product.price,
         description=product.description,
         image_url=create_image_url(product.image_url),
+        is_visible=product.is_visible,
+        is_deleted=product.is_deleted,
         is_sold_out=product.is_sold_out,
         display_order=product.display_order,
         category_ids=[category.id for category in categories],
@@ -81,9 +82,11 @@ def get_admin_categories(db: Session = Depends(get_db)):
 
 
 @router.get("/products", response_model=list[AdminProductResponse])
-def get_admin_products(db: Session = Depends(get_db)):
+def get_admin_products(deleted: bool = False, db: Session = Depends(get_db)):
     products = db.scalars(
-        select(Product).order_by(Product.display_order.nullslast(), Product.id)
+        select(Product)
+        .where(Product.is_deleted.is_(deleted))
+        .order_by(Product.display_order.nullslast(), Product.id)
     ).all()
     return [product_response(product, db) for product in products]
 
@@ -100,6 +103,8 @@ def create_admin_product(data: AdminProductWrite, db: Session = Depends(get_db))
         price=data.price,
         description=data.description.strip() or None if data.description else None,
         image_url=None,
+        is_visible=data.is_visible,
+        is_deleted=False,
         is_sold_out=data.is_sold_out,
         display_order=data.display_order,
     )
@@ -117,7 +122,7 @@ def create_admin_product(data: AdminProductWrite, db: Session = Depends(get_db))
 @router.get("/products/{product_id}", response_model=AdminProductResponse)
 def get_admin_product(product_id: int, db: Session = Depends(get_db)):
     product = db.get(Product, product_id)
-    if product is None:
+    if product is None or product.is_deleted:
         raise HTTPException(status_code=404, detail="商品が見つかりません")
     return product_response(product, db)
 
@@ -129,12 +134,13 @@ def update_admin_product(
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)
-    if product is None:
+    if product is None or product.is_deleted:
         raise HTTPException(status_code=404, detail="商品が見つかりません")
     name, categories = validate_product(data, db)
     product.name = name
     product.price = data.price
     product.description = data.description.strip() or None if data.description else None
+    product.is_visible = data.is_visible
     product.is_sold_out = data.is_sold_out
     product.display_order = data.display_order
     db.execute(delete(ProductCategory).where(ProductCategory.product_id == product.id))
@@ -154,7 +160,7 @@ async def replace_admin_product_image(
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, product_id)
-    if product is None:
+    if product is None or product.is_deleted:
         raise HTTPException(status_code=404, detail="商品が見つかりません")
 
     old_object_key = product.image_url
@@ -180,24 +186,21 @@ async def replace_admin_product_image(
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_admin_product(product_id: int, db: Session = Depends(get_db)):
     product = db.get(Product, product_id)
-    if product is None:
+    if product is None or product.is_deleted:
         raise HTTPException(status_code=404, detail="商品が見つかりません")
-
-    is_used = (
-        db.scalar(select(OrderItem.id).where(OrderItem.product_id == product_id).limit(1))
-        is not None
-        or db.scalar(select(Selection.id).where(Selection.product_id == product_id).limit(1))
-        is not None
-    )
-    if is_used:
-        raise HTTPException(
-            status_code=409,
-            detail="注文履歴または選択中データがあるため削除できません",
-        )
-
-    object_key = product.image_url
-    db.execute(delete(ProductCategory).where(ProductCategory.product_id == product_id))
-    db.delete(product)
+    db.execute(delete(Selection).where(Selection.product_id == product_id))
+    product.is_deleted = True
+    product.is_visible = False
     db.commit()
-    if not image_is_used_by_another_product(object_key, product_id, db):
-        delete_product_image(object_key)
+
+
+@router.post("/products/{product_id}/restore", response_model=AdminProductResponse)
+def restore_admin_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if product is None or not product.is_deleted:
+        raise HTTPException(status_code=404, detail="削除済み商品が見つかりません")
+    product.is_deleted = False
+    product.is_visible = False
+    db.commit()
+    db.refresh(product)
+    return product_response(product, db)

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, status
 from app.schemas.admin_staff import StaffAccountCreate, StaffAccountResponse, StaffPasswordReset
 from app.services.cognito_users import (
     create_staff_account,
+    delete_staff_account,
     list_staff_accounts,
     reset_staff_password,
     set_staff_enabled,
@@ -40,3 +41,8 @@ def enable_staff_user(username: str):
 @router.post("/{username}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 def reset_password(username: str, data: StaffPasswordReset):
     reset_staff_password(username, data.temporary_password)
+
+
+@router.delete("/{username}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_staff_user(username: str):
+    delete_staff_account(username)

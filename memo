@@ -15,6 +15,7 @@ http://127.0.0.1:8000
 
 npm run dev
 http://localhost:5173/
+/?table_id=1
 
 pip install pytest httpx   #テスト用ライブラリ
 

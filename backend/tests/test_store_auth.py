@@ -124,11 +124,16 @@ class FakeCognito:
     def admin_set_user_password(self, **kwargs):
         self.calls.append(("password", kwargs))
 
+    def admin_delete_user(self, **kwargs):
+        self.users.pop(kwargs["Username"])
+        self.groups.pop(kwargs["Username"], None)
+        self.calls.append(("delete", kwargs))
+
     def admin_get_user(self, **kwargs):
         return self.users[kwargs["Username"]]
 
 
-def test_cognito_staff_management_create_group_disable_enable_and_reset(monkeypatch):
+def test_cognito_staff_management_create_group_disable_enable_reset_and_delete(monkeypatch):
     fake = FakeCognito()
     monkeypatch.setattr(cognito_users, "_client", lambda: fake)
     data = StaffAccountCreate(email="STAFF@example.com", display_name="店舗スタッフ", temporary_password="Temporary1!")
@@ -147,3 +152,20 @@ def test_cognito_staff_management_create_group_disable_enable_and_reset(monkeypa
     cognito_users.reset_staff_password(created.username, "AnotherTemporary1!")
     password_call = next(call for call in fake.calls if call[0] == "password")
     assert password_call[1]["Permanent"] is False
+    cognito_users.delete_staff_account(created.username)
+    assert created.username not in fake.users
+    assert next(call for call in fake.calls if call[0] == "delete")[1]["Username"] == created.username
+
+
+def test_delete_staff_rejects_admin_and_non_staff(monkeypatch):
+    fake = FakeCognito()
+    fake.users["admin@example.com"] = {"Username": "admin@example.com", "Attributes": []}
+    fake.groups["admin@example.com"] = "admin"
+    fake.users["customer@example.com"] = {"Username": "customer@example.com", "Attributes": []}
+    monkeypatch.setattr(cognito_users, "_client", lambda: fake)
+
+    for username in ("admin@example.com", "customer@example.com"):
+        with pytest.raises(HTTPException) as rejected:
+            cognito_users.delete_staff_account(username)
+        assert rejected.value.status_code == 403
+    assert not any(call[0] == "delete" for call in fake.calls)

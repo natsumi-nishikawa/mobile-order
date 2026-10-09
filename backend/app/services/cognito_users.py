@@ -104,6 +104,34 @@ def reset_staff_password(username: str, temporary_password: str) -> None:
         _handle_error(exc)
 
 
+def _user_in_group(client, username: str, group_name: str) -> bool:
+    token = None
+    while True:
+        args = {"UserPoolId": _pool_id(), "GroupName": group_name}
+        if token:
+            args["NextToken"] = token
+        result = client.list_users_in_group(**args)
+        if any(user.get("Username") == username for user in result.get("Users", [])):
+            return True
+        token = result.get("NextToken")
+        if not token:
+            return False
+
+
+def delete_staff_account(username: str) -> None:
+    client = _client()
+    try:
+        if _user_in_group(client, username, "admin"):
+            raise HTTPException(status_code=403, detail="adminグループのユーザーは削除できません")
+        if not _user_in_group(client, username, "staff"):
+            raise HTTPException(status_code=403, detail="staffグループのユーザーだけ削除できます")
+        client.admin_delete_user(UserPoolId=_pool_id(), Username=username)
+    except HTTPException:
+        raise
+    except (ClientError, BotoCoreError) as exc:
+        _handle_error(exc)
+
+
 def ensure_cognito_user_enabled(username: str) -> None:
     try:
         user = _client().admin_get_user(UserPoolId=_pool_id(), Username=username)

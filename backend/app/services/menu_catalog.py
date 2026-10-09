@@ -14,7 +14,9 @@ def get_menu_categories(db: Session) -> list[Category]:
 
 def get_menu_products(db: Session) -> list[tuple[Product, list[int]]]:
     products = db.scalars(
-        select(Product).order_by(Product.display_order, Product.id)
+        select(Product)
+        .where(Product.is_visible.is_(True), Product.is_deleted.is_(False))
+        .order_by(Product.display_order, Product.id)
     ).all()
     category_rows = db.execute(
         select(ProductCategory.product_id, ProductCategory.category_id)

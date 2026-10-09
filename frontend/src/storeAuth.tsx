@@ -49,7 +49,8 @@ export async function beginStoreLogin(returnPath: string) {
   sessionStorage.setItem('store_pkce_verifier', verifier)
   sessionStorage.setItem('store_oauth_state', state)
   sessionStorage.setItem('store_return_path', returnPath)
-  const params = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'openid email', code_challenge_method: 'S256', code_challenge: challenge, state })
+  const params = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'openid email', code_challenge_method: 'S256', code_challenge: challenge, state, lang:'ja' })
+  console.log(`${domain}/oauth2/authorize?${params}`)
   window.location.assign(`${domain}/oauth2/authorize?${params}`)
 }
 

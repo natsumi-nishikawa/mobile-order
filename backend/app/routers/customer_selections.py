@@ -90,6 +90,12 @@ def update_selection(
             detail="商品が見つかりません",
         )
 
+    if product.is_deleted or not product.is_visible:
+        raise HTTPException(
+            status_code=409,
+            detail="この商品は現在販売されていません",
+        )
+
     if product.is_sold_out:
         raise HTTPException(
             status_code=409,

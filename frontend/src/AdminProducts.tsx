@@ -8,15 +8,15 @@ const ADMIN_API = 'http://localhost:8000/api/admin'
 type Category = { id: number; name: string; display_order: number }
 type Product = {
   id: number; name: string; price: number; description: string | null
-  image_url: string | null; is_sold_out: boolean; display_order: number | null
+  image_url: string | null; is_visible: boolean; is_deleted: boolean; is_sold_out: boolean; display_order: number | null
   category_ids: number[]; category_names: string[]
 }
 type FormData = {
   name: string; price: string; description: string
-  is_sold_out: boolean; display_order: string; category_ids: number[]
+  is_visible: boolean; is_sold_out: boolean; display_order: string; category_ids: number[]
 }
 
-const emptyForm: FormData = { name: '', price: '', description: '', is_sold_out: false, display_order: '', category_ids: [] }
+const emptyForm: FormData = { name: '', price: '', description: '', is_visible: true, is_sold_out: false, display_order: '', category_ids: [] }
 
 export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([])
@@ -27,14 +27,15 @@ export default function AdminProducts() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [showDeleted, setShowDeleted] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
-  const loadData = async () => {
+  const loadData = async (deleted = showDeleted) => {
     setLoading(true)
     try {
       const [productsResponse, categoriesResponse] = await Promise.all([
-        adminFetch(`${ADMIN_API}/products`), adminFetch(`${ADMIN_API}/categories`),
+        adminFetch(`${ADMIN_API}/products${deleted ? '?deleted=true' : ''}`), adminFetch(`${ADMIN_API}/categories`),
       ])
       if (!productsResponse.ok || !categoriesResponse.ok) throw new Error()
       setProducts(await productsResponse.json())
@@ -55,7 +56,7 @@ export default function AdminProducts() {
   const startEdit = (product: Product) => {
     setEditing(product)
     clearPreview()
-    setForm({ name: product.name, price: String(product.price), description: product.description ?? '', is_sold_out: product.is_sold_out, display_order: product.display_order === null ? '' : String(product.display_order), category_ids: product.category_ids })
+    setForm({ name: product.name, price: String(product.price), description: product.description ?? '', is_visible: product.is_visible, is_sold_out: product.is_sold_out, display_order: product.display_order === null ? '' : String(product.display_order), category_ids: product.category_ids })
     setPreviewUrl(product.image_url)
     setError(''); setMessage('')
   }
@@ -97,11 +98,25 @@ export default function AdminProducts() {
   }
 
   const remove = async (product: Product) => {
-    if (!window.confirm(`「${product.name}」を削除しますか？`)) return
+    if (!window.confirm(`「${product.name}」を削除済みにしますか？\n過去の注文・売上履歴は保持されます。`)) return
     setError(''); setMessage('')
     const response = await adminFetch(`${ADMIN_API}/products/${product.id}`, { method: 'DELETE' })
     if (!response.ok) { const data = await response.json().catch(() => ({})); setError(data.detail ?? '削除できませんでした'); return }
-    setMessage('商品を削除しました'); await loadData()
+    setMessage('商品を削除済みにしました'); await loadData(false)
+  }
+
+  const restore = async (product: Product) => {
+    if (!window.confirm(`「${product.name}」を非表示の商品として復元しますか？`)) return
+    setError(''); setMessage('')
+    const response = await adminFetch(`${ADMIN_API}/products/${product.id}/restore`, { method: 'POST' })
+    if (!response.ok) { const data = await response.json().catch(() => ({})); setError(data.detail ?? '復元できませんでした'); return }
+    setMessage('商品を非表示状態で復元しました'); await loadData(true)
+  }
+
+  const switchList = async () => {
+    const next = !showDeleted
+    setShowDeleted(next); setError(''); setMessage('')
+    await loadData(next)
   }
 
   if (editing !== null) return <main className="admin-app">
@@ -115,14 +130,15 @@ export default function AdminProducts() {
       <label>商品画像<small>（jpg・png・webp、5MB以下）</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => selectImage(e.target.files?.[0])} /></label>
       {previewUrl && <div className="image-preview"><span>{imageFile ? '選択した画像' : '現在の画像'}</span><img src={previewUrl} alt="商品画像プレビュー" /></div>}
       <label>表示順<input type="number" min="0" step="1" value={form.display_order} onChange={(e) => setForm({ ...form, display_order: e.target.value })} /></label>
+      <label className="switch"><input type="checkbox" checked={form.is_visible} onChange={(e) => setForm({ ...form, is_visible: e.target.checked })} />お客様メニューに表示する</label>
       <label className="switch"><input type="checkbox" checked={form.is_sold_out} onChange={(e) => setForm({ ...form, is_sold_out: e.target.checked })} />売り切れとして表示する</label>
       {error && <p className="admin-error">{error}</p>}
       <button className="admin-primary" disabled={saving || categories.length === 0}>{saving ? '保存中...' : editing === 'new' ? '登録する' : '変更を保存'}</button>
     </form>
   </main>
 
-  return <main className="admin-app"><header className="admin-header"><div><small>ADMIN</small><h1>商品管理</h1></div><button className="admin-primary" onClick={startNew}>＋ 商品を追加</button></header>
+  return <main className="admin-app"><header className="admin-header"><div><small>ADMIN</small><h1>{showDeleted ? '削除済み商品' : '商品管理'}</h1></div><div className="admin-header-actions"><button onClick={switchList}>{showDeleted ? '通常の商品を表示' : '削除済み商品を表示'}</button>{!showDeleted && <button className="admin-primary" onClick={startNew}>＋ 商品を追加</button>}</div></header>
     {message && <p className="admin-success">{message}</p>}{error && <p className="admin-error">{error}</p>}
-    {loading ? <p>読み込み中...</p> : products.length === 0 ? <div className="admin-empty">商品が登録されていません</div> : <div className="admin-table-wrap"><table><thead><tr><th>画像</th><th>商品名</th><th>価格</th><th>カテゴリ</th><th>状態</th><th>表示順</th><th>操作</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td>{product.image_url ? <img className="admin-thumb" src={product.image_url} alt="" /> : <span className="no-image">画像なし</span>}</td><td><strong>{product.name}</strong></td><td>{product.price.toLocaleString('ja-JP')}円</td><td>{product.category_names.join('、')}</td><td><span className={product.is_sold_out ? 'status sold' : 'status'}>{product.is_sold_out ? '売り切れ' : '販売中'}</span></td><td>{product.display_order ?? '未設定'}</td><td className="actions"><button onClick={() => startEdit(product)}>編集</button><button className="danger" onClick={() => remove(product)}>削除</button></td></tr>)}</tbody></table></div>}
+    {loading ? <p>読み込み中...</p> : products.length === 0 ? <div className="admin-empty">{showDeleted ? '削除済み商品はありません' : '商品が登録されていません'}</div> : <div className="admin-table-wrap"><table><thead><tr><th>画像</th><th>商品名</th><th>価格</th><th>カテゴリ</th><th>状態</th><th>表示順</th><th>操作</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td>{product.image_url ? <img className="admin-thumb" src={product.image_url} alt="" /> : <span className="no-image">画像なし</span>}</td><td><strong>{product.name}</strong></td><td>{product.price.toLocaleString('ja-JP')}円</td><td>{product.category_names.join('、')}</td><td><span className={product.is_deleted ? 'status deleted' : !product.is_visible ? 'status hidden' : product.is_sold_out ? 'status sold' : 'status'}>{product.is_deleted ? '削除済み' : !product.is_visible ? '非表示' : product.is_sold_out ? '売り切れ' : '販売中'}</span></td><td>{product.display_order ?? '未設定'}</td><td className="actions">{showDeleted ? <button onClick={() => restore(product)}>復元</button> : <><button onClick={() => startEdit(product)}>編集</button><button className="danger" onClick={() => remove(product)}>削除</button></>}</td></tr>)}</tbody></table></div>}
   </main>
 }

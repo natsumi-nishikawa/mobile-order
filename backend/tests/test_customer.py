@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.database import Base, get_db
-from app.store_auth import StoreUser, require_admin
+from app.store_auth import StoreUser, require_admin, require_staff
 
 from app.models.table import Table
 from app.models.session import Session
@@ -55,6 +55,7 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[require_admin] = lambda: StoreUser("test-admin", "admin", frozenset({"admin"}))
+app.dependency_overrides[require_staff] = lambda: StoreUser("test-staff", "staff", frozenset({"staff"}))
 
 client = TestClient(app)
 
@@ -552,6 +553,10 @@ def test_admin_product_management_and_customer_integration():
     ).status_code == 200
     order_response = client.post("/api/customer/orders", json={}, headers=headers)
     assert order_response.status_code == 200
+    order_id = order_response.json()["order_id"]
+    assert client.put(
+        f"/api/customer/selections/{product_id}", json={"quantity": 1}, headers=headers
+    ).status_code == 200
 
     updated_data = {
         **base_data,
@@ -576,9 +581,54 @@ def test_admin_product_management_and_customer_integration():
     orders = client.get(f"/api/customer/sessions/{session_id}/orders", headers=headers).json()
     assert orders[0]["items"][0]["unit_price"] == 500
 
-    # 注文履歴がある商品は安全のため削除しない
+    hidden_data = {**updated_data, "is_visible": False}
+    response = client.put(f"/api/admin/products/{product_id}", json=hidden_data)
+    assert response.status_code == 200
+    assert response.json()["is_visible"] is False
+    assert client.get("/api/customer/products", headers=headers).json() == []
+    orders = client.get(f"/api/customer/sessions/{session_id}/orders", headers=headers).json()
+    assert orders[0]["items"][0]["product_name"] == "更新した商品"
+    assert orders[0]["items"][0]["unit_price"] == 500
+
+    # 注文履歴があっても商品は論理削除し、履歴と注文時価格は保持する
     response = client.delete(f"/api/admin/products/{product_id}")
-    assert response.status_code == 409
+    assert response.status_code == 204
+    with TestingSessionLocal() as db:
+        deleted_product = db.get(Product, product_id)
+        assert deleted_product is not None
+        assert deleted_product.is_deleted is True
+        assert deleted_product.is_visible is False
+        assert db.get(Order, order_id) is not None
+        order_item = db.scalar(select(OrderItem).where(OrderItem.order_id == order_id))
+        assert order_item is not None
+        assert order_item.product_id == product_id
+        assert order_item.unit_price == 500
+        assert db.scalar(select(Selection).where(Selection.product_id == product_id)) is None
+
+    assert all(item["id"] != product_id for item in client.get("/api/admin/products").json())
+    deleted_products = client.get("/api/admin/products?deleted=true").json()
+    assert [item["id"] for item in deleted_products] == [product_id]
+    assert deleted_products[0]["is_deleted"] is True
+    assert client.get("/api/customer/products", headers=headers).json() == []
+    assert client.get("/api/staff/products").json() == []
+    assert client.put(
+        f"/api/customer/selections/{product_id}", json={"quantity": 1}, headers=headers
+    ).status_code == 409
+    assert client.post(
+        "/api/staff/orders",
+        json={"session_id": session_id, "items": [{"product_id": product_id, "quantity": 1}]},
+    ).status_code == 409
+    orders_after_delete = client.get(f"/api/customer/sessions/{session_id}/orders", headers=headers).json()
+    assert orders_after_delete[0]["items"][0]["unit_price"] == 500
+    assert orders_after_delete[0]["items"][0]["line_total"] == 1000
+
+    restored = client.post(f"/api/admin/products/{product_id}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["is_deleted"] is False
+    assert restored.json()["is_visible"] is False
+    assert any(item["id"] == product_id for item in client.get("/api/admin/products").json())
+    assert client.get("/api/admin/products?deleted=true").json() == []
+    assert client.get("/api/customer/products", headers=headers).json() == []
 
     unused_response = client.post(
         "/api/admin/products",
@@ -587,5 +637,8 @@ def test_admin_product_management_and_customer_integration():
     unused_id = unused_response.json()["id"]
     assert client.delete(f"/api/admin/products/{unused_id}").status_code == 204
     assert client.get(f"/api/admin/products/{unused_id}").status_code == 404
+    with TestingSessionLocal() as db:
+        assert db.get(Product, unused_id) is not None
+        assert db.get(Product, unused_id).is_deleted is True
 
     clear_test_data()
