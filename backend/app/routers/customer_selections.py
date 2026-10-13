@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from datetime import timedelta
 
 from sqlalchemy import delete, func, select
@@ -14,6 +14,7 @@ from app.schemas.customer import (
     SelectionResponse,
     SelectionUpdate,
 )
+from app.websocket_manager import customer_selection_connections
 
 
 router = APIRouter(
@@ -22,14 +23,15 @@ router = APIRouter(
 )
 
 
-def remove_expired_selections(db: Session, session_id: int) -> None:
+def remove_expired_selections(db: Session, session_id: int) -> int:
     participant_ids = select(Participant.id).where(Participant.session_id == session_id)
-    db.execute(
+    result = db.execute(
         delete(Selection).where(
             Selection.participant_id.in_(participant_ids),
             Selection.last_selected_at < func.now() - timedelta(minutes=10),
         )
     )
+    return result.rowcount or 0
 
 
 @router.get(
@@ -38,12 +40,18 @@ def remove_expired_selections(db: Session, session_id: int) -> None:
 )
 def get_selections(
     session_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     customer: CurrentCustomer = Depends(get_current_customer),
 ):
     require_customer_session(session_id, customer)
-    remove_expired_selections(db, session_id)
+    removed_count = remove_expired_selections(db, session_id)
     db.commit()
+    if removed_count:
+        background_tasks.add_task(
+            customer_selection_connections.broadcast_selection_changed,
+            session_id,
+        )
     rows = db.execute(
         select(Selection, Participant, Product)
         .join(
@@ -76,6 +84,7 @@ def get_selections(
 def update_selection(
     product_id: int,
     data: SelectionUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     customer: CurrentCustomer = Depends(get_current_customer),
 ):
@@ -121,6 +130,10 @@ def update_selection(
         selection.last_selected_at = func.now()
 
     db.commit()
+    background_tasks.add_task(
+        customer_selection_connections.broadcast_selection_changed,
+        customer.session.id,
+    )
 
     total_selected_quantity = db.scalar(
         select(func.coalesce(func.sum(Selection.quantity), 0))
@@ -144,6 +157,7 @@ def update_selection(
 @router.delete("/selections/{product_id}")
 def delete_selection(
     product_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     customer: CurrentCustomer = Depends(get_current_customer),
 ):
@@ -162,5 +176,9 @@ def delete_selection(
 
     db.delete(selection)
     db.commit()
+    background_tasks.add_task(
+        customer_selection_connections.broadcast_selection_changed,
+        customer.session.id,
+    )
 
     return {"message": "選択を削除しました"}

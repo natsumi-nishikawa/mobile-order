@@ -14,6 +14,7 @@ from app.routers.admin_business_hours import router as admin_business_hours_rout
 from app.routers.admin_accounting import router as admin_accounting_router
 from app.routers.staff import router as staff_router
 from app.routers.admin_staff import router as admin_staff_router
+from app.routers.customer_websocket import router as customer_websocket_router
 
 
 app = FastAPI()
@@ -42,6 +43,7 @@ app.include_router(admin_business_hours_router)
 app.include_router(admin_accounting_router)
 app.include_router(staff_router)
 app.include_router(admin_staff_router)
+app.include_router(customer_websocket_router)
 
 
 @app.get("/")

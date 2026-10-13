@@ -26,7 +26,12 @@ def get_current_customer(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> CurrentCustomer:
-    payload = verify_customer_token(credentials.credentials)
+    return resolve_current_customer(credentials.credentials, db)
+
+
+def resolve_current_customer(token: str, db: Session) -> CurrentCustomer:
+    """Resolve a customer token for both HTTP and WebSocket authentication."""
+    payload = verify_customer_token(token)
     participant_id = payload.get("participant_id")
     session_id = payload.get("session_id")
 

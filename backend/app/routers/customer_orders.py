@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from app.schemas.customer import (
     OrderResponse,
 )
 from app.routers.customer_selections import remove_expired_selections
+from app.websocket_manager import customer_selection_connections
 
 
 router = APIRouter(
@@ -29,6 +30,7 @@ router = APIRouter(
 )
 def create_order(
     _data: OrderCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     customer: CurrentCustomer = Depends(get_current_customer),
 ):
@@ -95,6 +97,10 @@ def create_order(
 
     db.commit()
     db.refresh(order)
+    background_tasks.add_task(
+        customer_selection_connections.broadcast_selection_changed,
+        customer.session.id,
+    )
 
     return OrderCreateResponse(
         order_id=order.id,

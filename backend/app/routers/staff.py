@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from app.schemas.staff import (
 )
 from app.services.menu_catalog import get_menu_categories, get_menu_products
 from app.store_auth import require_staff
+from app.websocket_manager import customer_selection_connections
 
 
 router = APIRouter(prefix="/api/staff", tags=["Staff"], dependencies=[Depends(require_staff)])
@@ -80,7 +81,11 @@ def start_session(table_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/sessions/{session_id}/complete", response_model=StaffSessionResponse)
-def complete_session(session_id: int, db: Session = Depends(get_db)):
+def complete_session(
+    session_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     session = db.scalar(select(SessionModel).where(
         SessionModel.id == session_id
     ).with_for_update())
@@ -92,6 +97,7 @@ def complete_session(session_id: int, db: Session = Depends(get_db)):
     session.completed_at = datetime.now()
     db.commit()
     db.refresh(session)
+    background_tasks.add_task(customer_selection_connections.close_session, session_id)
     return _session_response(session)
 
 

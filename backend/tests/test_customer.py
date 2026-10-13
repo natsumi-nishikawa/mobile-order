@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.test", override=True)
 
+import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
@@ -395,6 +397,132 @@ def test_customer_flow():
     # --------------------------------
     # 後片付け
     # --------------------------------
+
+    clear_test_data()
+
+
+def test_customer_selection_websocket_notifications_are_session_scoped():
+    clear_test_data()
+    test_data = create_test_data()
+    session_id = test_data["session_id"]
+    product_id = test_data["product_id"]
+
+    first = client.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "socket-a"},
+    ).json()
+    second = client.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "socket-b"},
+    ).json()
+
+    with TestingSessionLocal() as db:
+        other_table = Table(table_name="other-table")
+        db.add(other_table)
+        db.flush()
+        other_session = Session(table_id=other_table.id, status="active")
+        db.add(other_session)
+        db.commit()
+        other_session_id = other_session.id
+
+    other = client.post(
+        f"/api/customer/sessions/{other_session_id}/participants",
+        json={"nickname": "socket-c"},
+    ).json()
+    first_headers = {"Authorization": f"Bearer {first['access_token']}"}
+    websocket_headers = {"origin": "http://localhost:5173"}
+
+    with client.websocket_connect(
+        "/ws/customer/selections", headers=websocket_headers
+    ) as same_session_socket, client.websocket_connect(
+        "/ws/customer/selections", headers=websocket_headers
+    ) as other_session_socket:
+        same_session_socket.send_json({"type": "auth", "token": second["access_token"]})
+        assert same_session_socket.receive_json() == {
+            "type": "authenticated", "session_id": session_id
+        }
+        other_session_socket.send_json({"type": "auth", "token": other["access_token"]})
+        assert other_session_socket.receive_json() == {
+            "type": "authenticated", "session_id": other_session_id
+        }
+
+        response = client.put(
+            f"/api/customer/selections/{product_id}",
+            json={"quantity": 1},
+            headers=first_headers,
+        )
+        assert response.status_code == 200
+        assert same_session_socket.receive_json() == {
+            "type": "selections_changed", "session_id": session_id
+        }
+        other_session_socket.send_text('{"type":"ping"}')
+        assert other_session_socket.receive_json() == {"type": "pong"}
+
+        response = client.put(
+            f"/api/customer/selections/{product_id}",
+            json={"quantity": 3},
+            headers=first_headers,
+        )
+        assert response.status_code == 200
+        assert same_session_socket.receive_json()["type"] == "selections_changed"
+
+        response = client.delete(
+            f"/api/customer/selections/{product_id}", headers=first_headers
+        )
+        assert response.status_code == 200
+        assert same_session_socket.receive_json()["type"] == "selections_changed"
+
+        assert client.put(
+            f"/api/customer/selections/{product_id}",
+            json={"quantity": 2},
+            headers=first_headers,
+        ).status_code == 200
+        assert same_session_socket.receive_json()["type"] == "selections_changed"
+        assert client.post("/api/customer/orders", json={}, headers=first_headers).status_code == 200
+        assert same_session_socket.receive_json()["type"] == "selections_changed"
+
+    clear_test_data()
+
+
+def test_customer_selection_websocket_rejects_invalid_auth_and_origin():
+    with client.websocket_connect(
+        "/ws/customer/selections", headers={"origin": "http://localhost:5173"}
+    ) as websocket:
+        websocket.send_json({"type": "auth", "token": "invalid"})
+        with pytest.raises(WebSocketDisconnect) as error:
+            websocket.receive_json()
+        assert error.value.code == 1008
+
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect(
+            "/ws/customer/selections", headers={"origin": "https://evil.example"}
+        ):
+            pass
+    assert error.value.code == 1008
+
+
+def test_completing_session_closes_customer_websocket():
+    clear_test_data()
+    test_data = create_test_data()
+    session_id = test_data["session_id"]
+    participant = client.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "socket-end"},
+    ).json()
+
+    with client.websocket_connect(
+        "/ws/customer/selections", headers={"origin": "http://localhost:5173"}
+    ) as websocket:
+        websocket.send_json({"type": "auth", "token": participant["access_token"]})
+        assert websocket.receive_json()["type"] == "authenticated"
+        response = client.post(f"/api/staff/sessions/{session_id}/complete")
+        assert response.status_code == 200
+        assert websocket.receive_json() == {
+            "type": "session_ended", "session_id": session_id
+        }
+        with pytest.raises(WebSocketDisconnect) as error:
+            websocket.receive_json()
+        assert error.value.code == 4001
 
     clear_test_data()
 

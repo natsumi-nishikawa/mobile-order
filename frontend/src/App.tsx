@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import AdminApp from './AdminApp'
 import StaffApp from './StaffApp'
 import { StoreCallback, StoreGuard, StoreLogin } from './storeAuth'
 import './StoreAuth.css'
+import { useCustomerSelectionsSocket } from './useCustomerSelectionsSocket'
 
 const API_BASE = 'http://localhost:8000/api/customer'
 
@@ -34,6 +35,7 @@ function CustomerApp() {
   const [message, setMessage] = useState('')
   const [unavailable, setUnavailable] = useState('')
   const [activeCategoryId, setActiveCategoryId] = useState<number | 'all'>('all')
+  const selectionRequestId = useRef(0)
 
   const tableId = useMemo(() => {
     const value = new URLSearchParams(window.location.search).get('table_id')
@@ -119,11 +121,27 @@ function CustomerApp() {
   }
 
   const myQuantity = (productId: number) => selections.find((item) => item.product_id === productId && item.participant_id === customer?.participant_id)?.quantity ?? 0
-  const refreshSelections = async () => {
+  const refreshSelections = useCallback(async () => {
     if (!customer) return
+    const requestId = ++selectionRequestId.current
     const response = await authFetch(`/sessions/${customer.session_id}/selections`)
-    if (response.ok) setSelections(await response.json())
-  }
+    if (!response.ok) return
+    const latestSelections = await response.json()
+    if (requestId === selectionRequestId.current) setSelections(latestSelections)
+  }, [authFetch, customer])
+
+  const handleSessionEnded = useCallback(() => {
+    localStorage.removeItem('customer_token')
+    setCustomer(null)
+    setSelections([])
+    setUnavailable('この来店セッションは終了しました。スタッフへお声がけください。')
+  }, [])
+
+  useCustomerSelectionsSocket({
+    sessionId: customer?.session_id ?? null,
+    onRefresh: refreshSelections,
+    onSessionEnded: handleSessionEnded,
+  })
   const changeQuantity = async (product: Product, quantity: number) => {
     if (!customer || product.is_sold_out) return
     setMessage('')
