@@ -7,10 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.test", override=True)
 
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, delete, select
-from sqlalchemy.orm import sessionmaker
-
 from app.database import get_db
 from app.main import app
 from app.models.business_hour import BusinessHour
@@ -24,7 +20,10 @@ from app.models.selection import Selection
 from app.models.session import Session
 from app.models.table import Table
 from app.store_auth import StoreUser, require_admin
-
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, delete, select
+from sqlalchemy.orm import sessionmaker
+from tests.demo_auth_helper import authenticate_demo
 
 TEST_DATABASE_URL = os.getenv("DATABASE_URL")
 assert TEST_DATABASE_URL is not None
@@ -45,6 +44,7 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[require_admin] = lambda: StoreUser("test-admin", "admin", frozenset({"admin"}))
 client = TestClient(app)
+authenticate_demo(client)
 
 
 def clear_test_data():

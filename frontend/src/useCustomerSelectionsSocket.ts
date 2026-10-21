@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import { DEMO_AUTH_EXPIRED_EVENT, restoreDemoSession } from './demoAuth'
+import { WS_ORIGIN } from './apiConfig'
 
 type Options = {
   sessionId: number | null
@@ -6,9 +8,6 @@ type Options = {
   onSessionEnded: () => void
 }
 
-const API_BASE = 'http://localhost:8000/api/customer'
-const WS_BASE = (import.meta.env.VITE_WS_BASE_URL as string | undefined)
-  ?? API_BASE.replace(/^http/, 'ws').replace(/\/api\/customer$/, '')
 const NOTIFICATION_DEBOUNCE_MS = 100
 const FALLBACK_REFRESH_MS = 60_000
 const MAX_RECONNECT_DELAY_MS = 30_000
@@ -58,7 +57,7 @@ export function useCustomerSelectionsSocket({ sessionId, onRefresh, onSessionEnd
       const token = localStorage.getItem('customer_token')
       if (!token) return
 
-      socket = new WebSocket(`${WS_BASE}/ws/customer/selections`)
+      socket = new WebSocket(`${WS_ORIGIN}/ws/customer/selections`)
       socket.onopen = () => {
         socket?.send(JSON.stringify({ type: 'auth', token }))
       }
@@ -80,12 +79,18 @@ export function useCustomerSelectionsSocket({ sessionId, onRefresh, onSessionEnd
           onSessionEndedRef.current()
         }
       }
-      socket.onclose = (event) => {
+      socket.onclose = async (event) => {
         socket = null
         if (stopped) return
         if (event.code === 1008 || event.code === 4001) {
           stopped = true
-          onSessionEndedRef.current()
+          try {
+            if (await restoreDemoSession()) onSessionEndedRef.current()
+            else window.dispatchEvent(new Event(DEMO_AUTH_EXPIRED_EVENT))
+          } catch {
+            // A network failure is not proof of authentication expiry. Let the
+            // fallback HTTP refresh surface the connectivity error.
+          }
           return
         }
         const baseDelay = Math.min(1000 * (2 ** reconnectAttempt), MAX_RECONNECT_DELAY_MS)

@@ -1,17 +1,21 @@
+from app.customer_auth import (
+    CurrentCustomer,
+    get_current_customer,
+    require_customer_session,
+)
+from app.database import get_db
+from app.demo_auth import require_demo_session
+from app.models.order import Order
+from app.models.order_item import OrderItem
+from app.schemas.customer import BillResponse
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.customer_auth import CurrentCustomer, get_current_customer, require_customer_session
-from app.models.order import Order
-from app.models.order_item import OrderItem
-from app.schemas.customer import BillResponse
-
-
 router = APIRouter(
     prefix="/api/customer",
     tags=["Customer"],
+    dependencies=[Depends(require_demo_session)],
 )
 
 

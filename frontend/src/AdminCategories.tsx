@@ -17,7 +17,7 @@ export default function AdminCategories() {
   const save = async (event: FormEvent) => {
     event.preventDefault(); setError('')
     const order = Number(displayOrder)
-    if (!name.trim() || !Number.isInteger(order) || order < 0) { setError('カテゴリ名と0以上の表示順を入力してください'); return }
+    if (!name.trim() || !Number.isInteger(order) || order < 0 || order > 1_000_000) { setError('カテゴリ名と0～1,000,000の表示順を入力してください'); return }
     const isNew = editing === 'new'
     const response = await adminFetch(`${ADMIN_API}/categories${isNew ? '' : `/${editing!.id}`}`, { method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim(), display_order: order }) })
     if (!response.ok) { setError(await apiError(response, '保存できませんでした')); return }

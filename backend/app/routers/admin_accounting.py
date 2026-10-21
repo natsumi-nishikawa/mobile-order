@@ -1,8 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
 from app.database import get_db
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
@@ -16,9 +13,15 @@ from app.schemas.admin_accounting import (
     AdminSessionReopenResponse,
 )
 from app.store_auth import require_admin
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
-
-router = APIRouter(prefix="/api/admin/accounting", tags=["Admin accounting"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/admin/accounting",
+    tags=["Admin accounting"],
+    dependencies=[Depends(require_demo_session), Depends(require_admin)],
+)
 
 
 def _total_subquery():
@@ -99,7 +102,11 @@ def get_accounting_detail(session_id: int, db: Session = Depends(get_db)):
     return AdminAccountingDetail(**history.model_dump(), orders=order_responses)
 
 
-@router.post("/history/{session_id}/reopen", response_model=AdminSessionReopenResponse)
+@router.post(
+    "/history/{session_id}/reopen",
+    response_model=AdminSessionReopenResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def reopen_completed_session(session_id: int, db: Session = Depends(get_db)):
     session = db.scalar(
         select(SessionModel).where(SessionModel.id == session_id).with_for_update()

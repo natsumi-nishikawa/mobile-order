@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.order_limits import MAX_CUSTOMER_ITEM_QUANTITY
 
 # ---------- ニックネーム ----------
 
@@ -14,6 +15,12 @@ class ParticipantResponse(BaseModel):
     session_id: int
     nickname: str
     access_token: str
+
+
+class CustomerTableResponse(BaseModel):
+    id: int
+    table_name: str
+    is_in_use: bool
 
 
 # ---------- カテゴリ ----------
@@ -40,7 +47,7 @@ class ProductResponse(BaseModel):
 # ---------- 選択中商品 ----------
 
 class SelectionUpdate(BaseModel):
-    quantity: int = Field(ge=1)
+    quantity: int = Field(ge=1, le=MAX_CUSTOMER_ITEM_QUANTITY)
 
 
 class SelectionResponse(BaseModel):

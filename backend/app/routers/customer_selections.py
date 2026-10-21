@@ -1,25 +1,30 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from datetime import timedelta
 
-from sqlalchemy import delete, func, select
-from sqlalchemy.orm import Session
-
+from app.customer_auth import (
+    CurrentCustomer,
+    get_current_customer,
+    require_customer_session,
+)
 from app.database import get_db
-from app.customer_auth import CurrentCustomer, get_current_customer, require_customer_session
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.participant import Participant
 from app.models.product import Product
 from app.models.selection import Selection
+from app.rate_limit_dependencies import limit_customer_selection
 from app.schemas.customer import (
     SelectionListItem,
     SelectionResponse,
     SelectionUpdate,
 )
 from app.websocket_manager import customer_selection_connections
-
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
 
 router = APIRouter(
     prefix="/api/customer",
     tags=["Customer"],
+    dependencies=[Depends(require_demo_session)],
 )
 
 
@@ -80,6 +85,7 @@ def get_selections(
 @router.put(
     "/selections/{product_id}",
     response_model=SelectionResponse,
+    dependencies=[Depends(require_demo_csrf), Depends(limit_customer_selection)],
 )
 def update_selection(
     product_id: int,
@@ -154,7 +160,10 @@ def update_selection(
     )
 
 
-@router.delete("/selections/{product_id}")
+@router.delete(
+    "/selections/{product_id}",
+    dependencies=[Depends(require_demo_csrf), Depends(limit_customer_selection)],
+)
 def delete_selection(
     product_id: int,
     background_tasks: BackgroundTasks,

@@ -1,12 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import AdminApp from './AdminApp'
 import StaffApp from './StaffApp'
 import { StoreCallback, StoreGuard, StoreLogin } from './storeAuth'
 import './StoreAuth.css'
 import { useCustomerSelectionsSocket } from './useCustomerSelectionsSocket'
+import { CustomerTableChooser, DemoLogin, UserChooser } from './DemoEntry'
+import type { DemoTable } from './DemoEntry'
+import { CUSTOMER_API, DEMO_AUTH_EXPIRED_EVENT, logoutDemo, protectedFetch, restoreDemoSession } from './demoAuth'
+import { clearStoreAuth } from './storeAuth'
 
-const API_BASE = 'http://localhost:8000/api/customer'
+const API_BASE = CUSTOMER_API
+const MAX_CUSTOMER_ITEM_QUANTITY = 20
+const MAX_CUSTOMER_ORDER_QUANTITY = 100
+const MAX_ORDER_PRODUCT_TYPES = 30
 
 type Screen = 'menu' | 'confirm' | 'complete' | 'history' | 'bill'
 type Customer = { participant_id: number; session_id: number; table_id: number; table_name: string; nickname: string }
@@ -18,7 +25,7 @@ type Order = { order_id: number; ordered_at: string; order_type: string; items: 
 
 const yen = (value: number) => `${value.toLocaleString('ja-JP')}円`
 
-function CustomerApp() {
+function CustomerApp({ selectedTable, onBack }: { selectedTable: DemoTable; onBack: () => void }) {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [nickname, setNickname] = useState('')
   const [tableName, setTableName] = useState('')
@@ -37,15 +44,11 @@ function CustomerApp() {
   const [activeCategoryId, setActiveCategoryId] = useState<number | 'all'>('all')
   const selectionRequestId = useRef(0)
 
-  const tableId = useMemo(() => {
-    const value = new URLSearchParams(window.location.search).get('table_id')
-    const parsed = Number(value)
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-  }, [])
+  const tableId = selectedTable.id
 
   const authFetch = useCallback(async (path: string, options: RequestInit = {}) => {
     const token = localStorage.getItem('customer_token')
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await protectedFetch(`${API_BASE}${path}`, {
       ...options,
       headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     })
@@ -85,7 +88,7 @@ function CustomerApp() {
           }
         }
         if (tableId === null) { setUnavailable('QRコードからアクセスしてください。'); return }
-        const response = await fetch(`${API_BASE}/tables/${tableId}/session`)
+        const response = await protectedFetch(`${API_BASE}/tables/${tableId}/session`)
         const data = await response.json().catch(() => ({}))
         if (!response.ok) { setUnavailable(data.detail ?? '現在利用できません'); return }
         setTableName(data.table_name)
@@ -106,10 +109,10 @@ function CustomerApp() {
     if (trimmed.length > 20) { setMessage('ニックネームは20文字以内で入力してください'); return }
     setSubmitting(true); setMessage('')
     try {
-      const sessionResponse = await fetch(`${API_BASE}/tables/${tableId}/session`)
+      const sessionResponse = await protectedFetch(`${API_BASE}/tables/${tableId}/session`)
       const session = await sessionResponse.json().catch(() => ({}))
       if (!sessionResponse.ok) { setUnavailable(session.detail ?? '現在利用できません'); return }
-      const response = await fetch(`${API_BASE}/sessions/${session.session_id}/participants`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: trimmed }) })
+      const response = await protectedFetch(`${API_BASE}/sessions/${session.session_id}/participants`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: trimmed }) })
       if (!response.ok) { await showError(response, '登録に失敗しました'); return }
       const participant = await response.json()
       localStorage.setItem('customer_token', participant.access_token)
@@ -144,6 +147,7 @@ function CustomerApp() {
   })
   const changeQuantity = async (product: Product, quantity: number) => {
     if (!customer || product.is_sold_out) return
+    if (quantity > MAX_CUSTOMER_ITEM_QUANTITY) return
     setMessage('')
     const response = quantity <= 0
       ? await authFetch(`/selections/${product.id}`, { method: 'DELETE' })
@@ -155,6 +159,8 @@ function CustomerApp() {
   const mySelections = selections.filter((item) => item.participant_id === customer?.participant_id)
   const selectedProducts = mySelections.map((selection) => ({ selection, product: products.find((product) => product.id === selection.product_id)! })).filter((item) => item.product)
   const confirmTotal = selectedProducts.reduce((sum, item) => sum + item.product.price * item.selection.quantity, 0)
+  const selectedQuantity = mySelections.reduce((sum, item) => sum + item.quantity, 0)
+  const orderWithinLimits = mySelections.length <= MAX_ORDER_PRODUCT_TYPES && selectedQuantity <= MAX_CUSTOMER_ORDER_QUANTITY
   const menuCategories = products.some((product) => product.category_ids.length === 0)
     ? [...categories, { id: 0, name: 'その他', display_order: Number.MAX_SAFE_INTEGER }]
     : categories
@@ -167,6 +173,7 @@ function CustomerApp() {
 
   const placeOrder = async () => {
     if (submitting) return
+    if (!orderWithinLimits) return
     setSubmitting(true); setMessage('')
     try {
       const response = await authFetch('/orders', { method: 'POST', body: '{}' })
@@ -239,7 +246,7 @@ function CustomerApp() {
   }
 
   if (loading) return <main className="app"><p>読み込み中...</p></main>
-  if (!customer) return <main className="app entry"><div className="brand">MOBILE ORDER</div><h1>{tableName || 'モバイルオーダー'}</h1>{unavailable ? <div className="notice error">{unavailable}</div> : <section className="panel"><label htmlFor="nickname">ニックネーム</label><input id="nickname" value={nickname} maxLength={20} onChange={(event) => setNickname(event.target.value)} placeholder="例：たろう" autoComplete="off" /><button className="primary" disabled={submitting} onClick={handleStart}>注文をはじめる</button>{message && <p className="error-text">{message}</p>}</section>}</main>
+  if (!customer) return <main className="app entry"><button className="back" onClick={onBack}>← テーブル選択へ</button><div className="brand">MOBILE ORDER</div><h1>{tableName || selectedTable.table_name}</h1>{unavailable ? <div className="notice error">{unavailable}</div> : <section className="panel"><label htmlFor="nickname">ニックネーム</label><input id="nickname" value={nickname} maxLength={20} onChange={(event) => setNickname(event.target.value)} placeholder="例：たろう" autoComplete="off" /><button className="primary" disabled={submitting} onClick={handleStart}>注文をはじめる</button>{message && <p className="error-text">{message}</p>}</section>}</main>
 
   return <div className="customer-shell">
     <aside className="customer-sidebar">
@@ -288,13 +295,47 @@ function CustomerApp() {
   </div>
 }
 
+type DemoStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'error'
+type EntryScreen = 'roles' | 'tables'
+
 function App() {
+  const [demoStatus, setDemoStatus] = useState<DemoStatus>('checking')
+  const [demoError, setDemoError] = useState('')
+  const [entryScreen, setEntryScreen] = useState<EntryScreen>('roles')
+  const [selectedTable, setSelectedTable] = useState<DemoTable | null>(null)
+
+  useEffect(() => {
+    restoreDemoSession()
+      .then((authenticated) => setDemoStatus(authenticated ? 'authenticated' : 'unauthenticated'))
+      .catch((reason) => { setDemoError(reason instanceof Error ? reason.message : '通信に失敗しました'); setDemoStatus('error') })
+    const expired = () => { setSelectedTable(null); setEntryScreen('roles'); setDemoStatus('unauthenticated') }
+    window.addEventListener(DEMO_AUTH_EXPIRED_EVENT, expired)
+    return () => window.removeEventListener(DEMO_AUTH_EXPIRED_EVENT, expired)
+  }, [])
+
+  const handleDemoLogout = async () => {
+    try {
+      setDemoError('')
+      await logoutDemo()
+      localStorage.removeItem('customer_token')
+      clearStoreAuth()
+      setSelectedTable(null); setEntryScreen('roles'); setDemoStatus('unauthenticated')
+    } catch (reason) {
+      setDemoError(reason instanceof Error ? reason.message : 'ログアウトに失敗しました')
+    }
+  }
+
+  if (demoStatus === 'checking') return <main className="app entry"><p>認証状態を確認しています...</p></main>
+  if (demoStatus === 'unauthenticated' || demoStatus === 'error') return <DemoLogin initialError={demoError} onAuthenticated={() => { setDemoError(''); setDemoStatus('authenticated') }} />
+
   const params = new URLSearchParams(window.location.search)
   if (params.has('code') && params.has('state')) return <StoreCallback />
   if (window.location.pathname === '/login') return <StoreLogin />
   if (window.location.pathname.startsWith('/admin')) return <StoreGuard role="admin"><AdminApp /></StoreGuard>
   if (window.location.pathname.startsWith('/staff')) return <StoreGuard role="staff"><StaffApp /></StoreGuard>
-  return <CustomerApp />
+  if (selectedTable) return <CustomerApp selectedTable={selectedTable} onBack={() => setSelectedTable(null)} />
+  if (entryScreen === 'tables') return <CustomerTableChooser onSelect={setSelectedTable} onBack={() => setEntryScreen('roles')} />
+  return <UserChooser error={demoError} onCustomer={() => setEntryScreen('tables')} onStaff={() => window.location.assign('/login?return=/staff')} onAdmin={() => window.location.assign('/login?return=/admin')} onLogout={() => void handleDemoLogout()} />
 }
 
 export default App

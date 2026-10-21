@@ -1,18 +1,42 @@
+from app.database import get_db
+from app.demo_auth import require_demo_session
+from app.models.business_hour import BusinessHour
+from app.models.session import Session as SessionModel
+from app.models.table import Table
+from app.schemas.customer import CustomerTableResponse
+from app.schemas.customer_session import ActiveSessionResponse
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models.business_hour import BusinessHour
-from app.models.session import Session as SessionModel
-from app.models.table import Table
-from app.schemas.customer_session import ActiveSessionResponse
-
-
 router = APIRouter(
     prefix="/api/customer",
     tags=["Customer"],
+    dependencies=[Depends(require_demo_session)],
 )
+
+
+@router.get("/tables", response_model=list[CustomerTableResponse])
+def get_tables(db: Session = Depends(get_db)):
+    active_session_exists = (
+        select(SessionModel.id)
+        .where(
+            SessionModel.table_id == Table.id,
+            SessionModel.status == "active",
+        )
+        .exists()
+    )
+    rows = db.execute(
+        select(Table, active_session_exists.label("is_in_use")).order_by(Table.id)
+    ).all()
+    return [
+        CustomerTableResponse(
+            id=table.id,
+            table_name=table.table_name,
+            is_in_use=is_in_use,
+        )
+        for table, is_in_use in rows
+    ]
 
 
 @router.get(

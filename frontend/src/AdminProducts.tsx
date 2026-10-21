@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import './AdminProducts.css'
-import { adminFetch } from './adminApi'
-
-const ADMIN_API = 'http://localhost:8000/api/admin'
+import { ADMIN_API, adminFetch } from './adminApi'
 
 type Category = { id: number; name: string; display_order: number }
 type Product = {
@@ -60,7 +58,7 @@ export default function AdminProducts() {
     setPreviewUrl(product.image_url)
     setError(''); setMessage('')
   }
-  const toggleCategory = (id: number) => setForm((current) => ({ ...current, category_ids: current.category_ids.includes(id) ? current.category_ids.filter((value) => value !== id) : [...current.category_ids, id] }))
+  const toggleCategory = (id: number) => setForm((current) => ({ ...current, category_ids: current.category_ids.includes(id) ? current.category_ids.filter((value) => value !== id) : current.category_ids.length < 20 ? [...current.category_ids, id] : current.category_ids }))
   const selectImage = (file: File | undefined) => {
     if (!file) return
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setError('jpg、jpeg、png、webp画像を選択してください'); return }
@@ -74,9 +72,10 @@ export default function AdminProducts() {
     const price = Number(form.price)
     const displayOrder = form.display_order === '' ? null : Number(form.display_order)
     if (!form.name.trim()) { setError('商品名を入力してください'); return }
-    if (!Number.isInteger(price) || price < 0) { setError('価格は0以上の整数で入力してください'); return }
+    if (!Number.isInteger(price) || price < 0 || price > 1_000_000) { setError('価格は0～1,000,000円の整数で入力してください'); return }
     if (displayOrder !== null && (!Number.isInteger(displayOrder) || displayOrder < 0)) { setError('表示順は0以上の整数で入力してください'); return }
     if (form.category_ids.length === 0) { setError('カテゴリを1つ以上選択してください'); return }
+    if (form.category_ids.length > 20) { setError('カテゴリは20件まで選択できます'); return }
     setSaving(true)
     try {
       const isNew = editing === 'new'

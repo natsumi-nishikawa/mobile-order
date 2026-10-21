@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 os.environ["ENV_FILE"] = ".env.test"
 
@@ -7,27 +7,27 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.test", override=True)
 
+import jwt
 import pytest
+from app.database import Base, get_db
+from app.demo_auth import ALGORITHM, COOKIE_NAME
+from app.main import app
+from app.models.business_hour import BusinessHour
+from app.models.category import Category
+from app.models.order import Order
+from app.models.order_item import OrderItem
+from app.models.participant import Participant
+from app.models.product import Product
+from app.models.product_category import ProductCategory
+from app.models.selection import Selection
+from app.models.session import Session
+from app.models.table import Table
+from app.store_auth import StoreUser, require_admin, require_staff
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
-
-from app.main import app
-from app.database import Base, get_db
-from app.store_auth import StoreUser, require_admin, require_staff
-
-from app.models.table import Table
-from app.models.session import Session
-from app.models.participant import Participant
-from app.models.category import Category
-from app.models.product import Product
-from app.models.product_category import ProductCategory
-from app.models.selection import Selection
-from app.models.order import Order
-from app.models.order_item import OrderItem
-from app.models.business_hour import BusinessHour
-
+from tests.demo_auth_helper import authenticate_demo
 
 TEST_DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -60,6 +60,7 @@ app.dependency_overrides[require_admin] = lambda: StoreUser("test-admin", "admin
 app.dependency_overrides[require_staff] = lambda: StoreUser("test-staff", "staff", frozenset({"staff"}))
 
 client = TestClient(app)
+authenticate_demo(client)
 
 
 def clear_test_data():
@@ -481,6 +482,126 @@ def test_customer_selection_websocket_notifications_are_session_scoped():
         assert client.post("/api/customer/orders", json={}, headers=first_headers).status_code == 200
         assert same_session_socket.receive_json()["type"] == "selections_changed"
 
+    clear_test_data()
+
+
+def test_customer_entry_apis_require_demo_auth_and_hide_session_from_table_list():
+    clear_test_data()
+    test_data = create_test_data()
+    table_id = test_data["table_id"]
+    session_id = test_data["session_id"]
+    with TestingSessionLocal() as db:
+        unused_table = Table(table_name="unused-table")
+        db.add(unused_table)
+        db.commit()
+        unused_table_id = unused_table.id
+
+    unauthenticated = TestClient(app)
+    assert unauthenticated.get("/api/customer/tables").status_code == 401
+    assert unauthenticated.get(
+        f"/api/customer/tables/{table_id}/session"
+    ).status_code == 401
+    assert unauthenticated.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "unauthorized"},
+    ).status_code == 401
+
+    authenticated = TestClient(app)
+    authenticate_demo(authenticated)
+    tables = authenticated.get("/api/customer/tables")
+    assert tables.status_code == 200
+    table_statuses = {item["id"]: item for item in tables.json()}
+    assert table_statuses[table_id]["is_in_use"] is True
+    assert table_statuses[unused_table_id]["is_in_use"] is False
+    assert all("session_id" not in item for item in tables.json())
+    assert authenticated.get(
+        f"/api/customer/tables/{table_id}/session"
+    ).status_code == 200
+
+    clear_test_data()
+
+
+def test_customer_participation_requires_csrf_and_active_session():
+    clear_test_data()
+    test_data = create_test_data()
+    session_id = test_data["session_id"]
+
+    csrf_missing = TestClient(app)
+    login_response = csrf_missing.post(
+        "/api/demo-auth/login",
+        json={"password": "test-demo-password"},
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert login_response.status_code == 200
+    assert csrf_missing.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "no-csrf"},
+        headers={"Origin": "http://localhost:5173"},
+    ).status_code == 403
+
+    authenticated = TestClient(app)
+    authenticate_demo(authenticated)
+    joined = authenticated.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "authorized"},
+    )
+    assert joined.status_code == 200
+    assert joined.json()["access_token"]
+
+    with TestingSessionLocal() as db:
+        session = db.get(Session, session_id)
+        session.status = "completed"
+        session.completed_at = datetime.now()
+        db.commit()
+
+    assert authenticated.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "too-late"},
+    ).status_code == 404
+    clear_test_data()
+
+
+def test_expired_demo_session_blocks_customer_jwt_apis_and_websocket():
+    clear_test_data()
+    test_data = create_test_data()
+    session_id = test_data["session_id"]
+
+    protected_client = TestClient(app)
+    authenticate_demo(protected_client)
+    participant = protected_client.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "expires"},
+    ).json()
+    customer_headers = {"Authorization": f"Bearer {participant['access_token']}"}
+
+    now = datetime.now(timezone.utc)
+    expired_demo_token = jwt.encode(
+        {
+            "type": "demo_session",
+            "iat": now - timedelta(hours=2),
+            "exp": now - timedelta(hours=1),
+            "jti": "expired-demo-session",
+            "csrf": "expired-csrf-token",
+        },
+        "test-demo-secret-that-is-longer-than-32-characters",
+        algorithm=ALGORITHM,
+    )
+    protected_client.cookies.set(COOKIE_NAME, expired_demo_token)
+    assert protected_client.get(
+        "/api/customer/me", headers=customer_headers
+    ).status_code == 401
+    assert protected_client.post(
+        "/api/customer/orders", json={}, headers=customer_headers
+    ).status_code == 401
+
+    websocket_client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect) as error:
+        with websocket_client.websocket_connect(
+            "/ws/customer/selections",
+            headers={"origin": "http://localhost:5173"},
+        ):
+            pass
+    assert error.value.code == 1008
     clear_test_data()
 
 

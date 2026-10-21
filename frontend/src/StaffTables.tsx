@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react'
 import { STAFF_API, staffError, staffFetch } from './staffApi'
 import type { StaffCategory, StaffProduct, StaffTable } from './staffApi'
 
+const MAX_STAFF_ITEM_QUANTITY = 50
+const MAX_STAFF_ORDER_QUANTITY = 200
+const MAX_ORDER_PRODUCT_TYPES = 30
+
 export default function StaffTables() {
   const [tables, setTables] = useState<StaffTable[]>([])
   const [products, setProducts] = useState<StaffProduct[]>([])
@@ -24,6 +28,8 @@ export default function StaffTables() {
     if (!ordering?.active_session) return
     const items = Object.entries(quantities).filter(([, quantity]) => quantity > 0).map(([product_id, quantity]) => ({ product_id: Number(product_id), quantity }))
     if (!items.length) { setError('商品を1つ以上選択してください'); return }
+    if (items.some((item) => item.quantity > MAX_STAFF_ITEM_QUANTITY)) { setError('1商品あたり50個までです。'); return }
+    if (items.length > MAX_ORDER_PRODUCT_TYPES || items.reduce((sum, item) => sum + item.quantity, 0) > MAX_STAFF_ORDER_QUANTITY) { setError('1回の代理注文は30種類・合計200個までです。'); return }
     const response = await staffFetch(`${STAFF_API}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: ordering.active_session.id, items }) })
     if (!response.ok) { setError(await staffError(response, '注文できませんでした')); return }
     setOrdering(null); setMessage('代理注文を登録しました')

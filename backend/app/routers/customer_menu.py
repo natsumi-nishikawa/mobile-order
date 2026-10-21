@@ -1,16 +1,16 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
-from app.database import get_db
 from app.customer_auth import CurrentCustomer, get_current_customer
+from app.database import get_db
+from app.demo_auth import require_demo_session
 from app.schemas.customer import CategoryResponse, ProductResponse
 from app.services.menu_catalog import get_menu_categories, get_menu_products
 from app.services.product_images import create_image_url
-
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 router = APIRouter(
     prefix="/api/customer",
     tags=["Customer"],
+    dependencies=[Depends(require_demo_session)],
 )
 
 

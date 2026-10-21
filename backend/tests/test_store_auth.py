@@ -9,15 +9,16 @@ os.environ["COGNITO_APP_CLIENT_ID"] = "test-client-id"
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi import HTTPException
-from fastapi.testclient import TestClient
-
 from app import store_auth
+from app.demo_auth import ALGORITHM as DEMO_ALGORITHM
+from app.demo_auth import COOKIE_NAME as DEMO_COOKIE_NAME
 from app.main import app
 from app.schemas.admin_staff import StaffAccountCreate
 from app.services import cognito_users
-
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from tests.demo_auth_helper import authenticate_demo
 
 PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ISSUER = "https://cognito-idp.ap-northeast-1.amazonaws.com/ap-northeast-1_TestPool"
@@ -76,10 +77,68 @@ def test_admin_and_staff_api_authorization(monkeypatch):
     monkeypatch.setattr(cognito_users, "ensure_cognito_user_enabled", lambda _username: None)
     client = TestClient(app)
     try:
+        # Cognito alone is insufficient without the independent demo session.
         assert client.get("/api/staff/categories").status_code == 401
         assert client.get("/api/admin/categories").status_code == 401
         staff_headers = {"Authorization": "Bearer staff-token"}
         admin_headers = {"Authorization": "Bearer admin-token"}
+        assert client.get("/api/staff/categories", headers=staff_headers).status_code == 401
+        assert client.get("/api/admin/categories", headers=admin_headers).status_code == 401
+
+        # Demo authentication alone is also insufficient.
+        authenticate_demo(client)
+        assert client.get("/api/staff/categories").status_code == 401
+        assert client.get("/api/admin/categories").status_code == 401
+
+        csrf_missing = TestClient(app)
+        assert csrf_missing.post(
+            "/api/demo-auth/login",
+            json={"password": "test-demo-password"},
+            headers={"Origin": "http://localhost:5173"},
+        ).status_code == 200
+        assert csrf_missing.post(
+            "/api/staff/tables/1/sessions",
+            headers={
+                "Authorization": "Bearer staff-token",
+                "Origin": "http://localhost:5173",
+            },
+        ).status_code == 403
+        assert csrf_missing.post(
+            "/api/admin/categories",
+            json={"name": "blocked", "display_order": 1},
+            headers={
+                "Authorization": "Bearer admin-token",
+                "Origin": "http://localhost:5173",
+            },
+        ).status_code == 403
+
+        now = datetime.now(timezone.utc)
+        expired_demo_token = jwt.encode(
+            {
+                "type": "demo_session",
+                "iat": now - timedelta(hours=2),
+                "exp": now - timedelta(hours=1),
+                "jti": "expired-store-demo-session",
+                "csrf": "expired-csrf-token",
+            },
+            "test-demo-secret-that-is-longer-than-32-characters",
+            algorithm=DEMO_ALGORITHM,
+        )
+        assert client.get(
+            "/api/staff/categories",
+            headers={
+                **staff_headers,
+                "Cookie": f"{DEMO_COOKIE_NAME}={expired_demo_token}",
+            },
+        ).status_code == 401
+        assert client.get(
+            "/api/admin/categories",
+            headers={
+                **admin_headers,
+                "Cookie": f"{DEMO_COOKIE_NAME}={expired_demo_token}",
+            },
+        ).status_code == 401
+
         assert client.get("/api/staff/categories", headers=staff_headers).status_code == 200
         assert client.get("/api/admin/categories", headers=staff_headers).status_code == 403
         assert client.get("/api/admin/categories", headers=admin_headers).status_code == 200

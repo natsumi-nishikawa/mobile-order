@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import CheckConstraint, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,6 +8,12 @@ from app.database import Base
 
 class Category(Base):
     __tablename__ = "categories"
+    __table_args__ = (
+        CheckConstraint(
+            "display_order >= 0 AND display_order <= 1000000",
+            name="ck_categories_display_order_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

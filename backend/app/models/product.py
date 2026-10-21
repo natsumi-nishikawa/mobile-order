@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,6 +8,17 @@ from app.database import Base
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint("price >= 0 AND price <= 1000000", name="ck_products_price_range"),
+        CheckConstraint(
+            "description IS NULL OR char_length(description) <= 2000",
+            name="ck_products_description_length",
+        ),
+        CheckConstraint(
+            "display_order IS NULL OR (display_order >= 0 AND display_order <= 1000000)",
+            name="ck_products_display_order_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

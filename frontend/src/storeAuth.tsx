@@ -1,6 +1,8 @@
 /* oxlint-disable react/only-export-components */
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { protectedFetch } from './demoAuth'
+import { safeStoreReturnPath } from './storeRedirect'
 
 const domain = (import.meta.env.VITE_COGNITO_DOMAIN ?? '').replace(/\/$/, '')
 const clientId = import.meta.env.VITE_COGNITO_APP_CLIENT_ID ?? ''
@@ -48,9 +50,8 @@ export async function beginStoreLogin(returnPath: string) {
   const state = base64Url(crypto.getRandomValues(new Uint8Array(24)))
   sessionStorage.setItem('store_pkce_verifier', verifier)
   sessionStorage.setItem('store_oauth_state', state)
-  sessionStorage.setItem('store_return_path', returnPath)
+  sessionStorage.setItem('store_return_path', safeStoreReturnPath(returnPath))
   const params = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'openid email', code_challenge_method: 'S256', code_challenge: challenge, state, lang:'ja' })
-  console.log(`${domain}/oauth2/authorize?${params}`)
   window.location.assign(`${domain}/oauth2/authorize?${params}`)
 }
 
@@ -63,7 +64,11 @@ export function logoutStore() {
 
 export async function storeFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const token = getAccessToken()
-  const response = await fetch(input, { ...init, headers: { ...init.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+  const headers = new Headers(init.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await protectedFetch(input, { ...init, headers })
+  // A 401 with a still-valid demo session belongs to Cognito/customer auth.
+  // Clearing this token is therefore safe and independent of demo auth.
   if (response.status === 401) clearStoreAuth()
   return response
 }
@@ -83,7 +88,8 @@ export function StoreCallback() {
       localStorage.setItem(ACCESS_TOKEN, tokens.access_token)
       if (tokens.id_token) localStorage.setItem(ID_TOKEN, tokens.id_token)
       localStorage.setItem(EXPIRES_AT, String(Date.now() + Number(tokens.expires_in) * 1000 - 30000))
-      const returnPath = sessionStorage.getItem('store_return_path') || '/staff'
+      const groups = decodePayload(tokens.access_token)?.['cognito:groups'] ?? []
+      const returnPath = safeStoreReturnPath(sessionStorage.getItem('store_return_path'), groups)
       sessionStorage.removeItem('store_pkce_verifier'); sessionStorage.removeItem('store_oauth_state'); sessionStorage.removeItem('store_return_path')
       window.location.replace(returnPath)
     }
@@ -94,8 +100,8 @@ export function StoreCallback() {
 
 export function StoreLogin() {
   const params = new URLSearchParams(window.location.search)
-  const protectedPath = window.location.pathname.startsWith('/admin') || window.location.pathname.startsWith('/staff') ? window.location.pathname : '/staff'
-  const destination = params.get('return') || protectedPath
+  const protectedPath = safeStoreReturnPath(window.location.pathname)
+  const destination = safeStoreReturnPath(params.get('return') ?? protectedPath)
   const [error, setError] = useState('')
   return <main className="store-login"><div className="store-login-card"><small>MOBILE ORDER</small><h1>店舗ログイン</h1><p>メールアドレスとパスワードでログインしてください。</p>{error && <p className="store-login-error">{error}</p>}<button onClick={() => beginStoreLogin(destination).catch((reason) => setError(reason.message))}>Cognitoでログイン</button></div></main>
 }

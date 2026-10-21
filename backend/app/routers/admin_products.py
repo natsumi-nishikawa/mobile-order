@@ -1,8 +1,5 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
-
 from app.database import get_db
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.category import Category
 from app.models.product import Product
 from app.models.product_category import ProductCategory
@@ -17,12 +14,16 @@ from app.services.product_images import (
     delete_product_image,
     upload_product_image,
 )
-
-
 from app.store_auth import require_admin
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
-
-router = APIRouter(prefix="/api/admin", tags=["Admin products"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["Admin products"],
+    dependencies=[Depends(require_demo_session), Depends(require_admin)],
+)
 
 
 def validate_product(data: AdminProductWrite, db: Session) -> tuple[str, list[Category]]:
@@ -95,6 +96,7 @@ def get_admin_products(deleted: bool = False, db: Session = Depends(get_db)):
     "/products",
     response_model=AdminProductResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_csrf)],
 )
 def create_admin_product(data: AdminProductWrite, db: Session = Depends(get_db)):
     name, categories = validate_product(data, db)
@@ -127,7 +129,11 @@ def get_admin_product(product_id: int, db: Session = Depends(get_db)):
     return product_response(product, db)
 
 
-@router.put("/products/{product_id}", response_model=AdminProductResponse)
+@router.put(
+    "/products/{product_id}",
+    response_model=AdminProductResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def update_admin_product(
     product_id: int,
     data: AdminProductWrite,
@@ -153,7 +159,11 @@ def update_admin_product(
     return product_response(product, db)
 
 
-@router.post("/products/{product_id}/image", response_model=AdminProductResponse)
+@router.post(
+    "/products/{product_id}/image",
+    response_model=AdminProductResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 async def replace_admin_product_image(
     product_id: int,
     image: UploadFile = File(...),
@@ -183,7 +193,11 @@ async def replace_admin_product_image(
     return product_response(product, db)
 
 
-@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/products/{product_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def delete_admin_product(product_id: int, db: Session = Depends(get_db)):
     product = db.get(Product, product_id)
     if product is None or product.is_deleted:
@@ -194,7 +208,11 @@ def delete_admin_product(product_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.post("/products/{product_id}/restore", response_model=AdminProductResponse)
+@router.post(
+    "/products/{product_id}/restore",
+    response_model=AdminProductResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def restore_admin_product(product_id: int, db: Session = Depends(get_db)):
     product = db.get(Product, product_id)
     if product is None or not product.is_deleted:

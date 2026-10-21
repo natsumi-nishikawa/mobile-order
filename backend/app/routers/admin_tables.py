@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from app.database import get_db
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.session import Session as SessionModel
 from app.models.table import Table
 from app.schemas.admin_table import AdminTableResponse, AdminTableWrite
 from app.store_auth import require_admin
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-
-router = APIRouter(prefix="/api/admin/tables", tags=["Admin tables"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/admin/tables",
+    tags=["Admin tables"],
+    dependencies=[Depends(require_demo_session), Depends(require_admin)],
+)
 
 
 def _clean_name(name: str) -> str:
@@ -24,7 +27,12 @@ def get_tables(db: Session = Depends(get_db)):
     return db.scalars(select(Table).order_by(Table.id)).all()
 
 
-@router.post("", response_model=AdminTableResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=AdminTableResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def create_table(data: AdminTableWrite, db: Session = Depends(get_db)):
     table = Table(table_name=_clean_name(data.table_name))
     db.add(table)
@@ -33,7 +41,11 @@ def create_table(data: AdminTableWrite, db: Session = Depends(get_db)):
     return table
 
 
-@router.put("/{table_id}", response_model=AdminTableResponse)
+@router.put(
+    "/{table_id}",
+    response_model=AdminTableResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def update_table(table_id: int, data: AdminTableWrite, db: Session = Depends(get_db)):
     table = db.get(Table, table_id)
     if table is None:
@@ -44,7 +56,11 @@ def update_table(table_id: int, data: AdminTableWrite, db: Session = Depends(get
     return table
 
 
-@router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{table_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def delete_table(table_id: int, db: Session = Depends(get_db)):
     table = db.get(Table, table_id)
     if table is None:

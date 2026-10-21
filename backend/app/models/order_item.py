@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,6 +8,20 @@ from app.database import Base
 
 class OrderItem(Base):
     __tablename__ = "order_items"
+    __table_args__ = (
+        CheckConstraint(
+            "quantity >= 1 AND quantity <= 50",
+            name="ck_order_items_quantity_range",
+        ),
+        CheckConstraint(
+            "canceled_quantity >= 0 AND canceled_quantity <= quantity",
+            name="ck_order_items_canceled_quantity_range",
+        ),
+        CheckConstraint(
+            "served_quantity >= 0 AND served_quantity <= quantity",
+            name="ck_order_items_served_quantity_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False, index=True)

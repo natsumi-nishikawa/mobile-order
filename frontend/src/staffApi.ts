@@ -1,6 +1,7 @@
 import { storeFetch } from './storeAuth'
+import { STAFF_API } from './demoAuth'
 
-export const STAFF_API = 'http://localhost:8000/api/staff'
+export { STAFF_API }
 export const staffFetch = storeFetch
 
 export type ActiveSession = { id: number; status: string; started_at: string }

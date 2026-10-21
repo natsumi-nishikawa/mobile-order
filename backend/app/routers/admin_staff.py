@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, status
-
-from app.schemas.admin_staff import StaffAccountCreate, StaffAccountResponse, StaffPasswordReset
+from app.demo_auth import require_demo_csrf, require_demo_session
+from app.schemas.admin_staff import (
+    StaffAccountCreate,
+    StaffAccountResponse,
+    StaffPasswordReset,
+)
 from app.services.cognito_users import (
     create_staff_account,
     delete_staff_account,
@@ -9,12 +12,12 @@ from app.services.cognito_users import (
     set_staff_enabled,
 )
 from app.store_auth import require_admin
-
+from fastapi import APIRouter, Depends, status
 
 router = APIRouter(
     prefix="/api/admin/staff-users",
     tags=["Admin staff users"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_demo_session), Depends(require_admin)],
 )
 
 
@@ -23,26 +26,47 @@ def get_staff_users():
     return list_staff_accounts()
 
 
-@router.post("", response_model=StaffAccountResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=StaffAccountResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def create_staff_user(data: StaffAccountCreate):
     return create_staff_account(str(data.email), data.temporary_password, data.display_name)
 
 
-@router.post("/{username}/disable", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{username}/disable",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def disable_staff_user(username: str):
     set_staff_enabled(username, False)
 
 
-@router.post("/{username}/enable", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{username}/enable",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def enable_staff_user(username: str):
     set_staff_enabled(username, True)
 
 
-@router.post("/{username}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{username}/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def reset_password(username: str, data: StaffPasswordReset):
     reset_staff_password(username, data.temporary_password)
 
 
-@router.delete("/{username}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{username}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def delete_staff_user(username: str):
     delete_staff_account(username)

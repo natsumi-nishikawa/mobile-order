@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.order_limits import MAX_ORDER_PRODUCT_TYPES, MAX_STAFF_ITEM_QUANTITY
+
 
 class StaffSessionSummary(BaseModel):
     id: int
@@ -84,9 +86,12 @@ class StaffCategoryResponse(BaseModel):
 
 class StaffOrderCreateItem(BaseModel):
     product_id: int
-    quantity: int = Field(ge=1)
+    quantity: int = Field(ge=1, le=MAX_STAFF_ITEM_QUANTITY)
 
 
 class StaffOrderCreate(BaseModel):
     session_id: int
-    items: list[StaffOrderCreateItem] = Field(min_length=1)
+    items: list[StaffOrderCreateItem] = Field(
+        min_length=1,
+        max_length=MAX_ORDER_PRODUCT_TYPES,
+    )

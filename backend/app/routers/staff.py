@@ -1,15 +1,18 @@
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from app.database import get_db
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.session import Session as SessionModel
 from app.models.table import Table
+from app.order_limits import (
+    MAX_STAFF_ORDER_QUANTITY,
+    lock_active_session,
+    validate_session_order_capacity,
+)
+from app.rate_limit_dependencies import limit_staff_order
 from app.schemas.staff import (
     QuantityUpdate,
     StaffAccountingDetail,
@@ -26,9 +29,15 @@ from app.schemas.staff import (
 from app.services.menu_catalog import get_menu_categories, get_menu_products
 from app.store_auth import require_staff
 from app.websocket_manager import customer_selection_connections
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-
-router = APIRouter(prefix="/api/staff", tags=["Staff"], dependencies=[Depends(require_staff)])
+router = APIRouter(
+    prefix="/api/staff",
+    tags=["Staff"],
+    dependencies=[Depends(require_demo_session), Depends(require_staff)],
+)
 
 
 def _active_session(db: Session, table_id: int) -> SessionModel | None:
@@ -66,6 +75,7 @@ def get_tables(db: Session = Depends(get_db)):
     "/tables/{table_id}/sessions",
     response_model=StaffSessionResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_csrf)],
 )
 def start_session(table_id: int, db: Session = Depends(get_db)):
     table = db.scalar(select(Table).where(Table.id == table_id).with_for_update())
@@ -80,7 +90,11 @@ def start_session(table_id: int, db: Session = Depends(get_db)):
     return _session_response(session)
 
 
-@router.post("/sessions/{session_id}/complete", response_model=StaffSessionResponse)
+@router.post(
+    "/sessions/{session_id}/complete",
+    response_model=StaffSessionResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def complete_session(
     session_id: int,
     background_tasks: BackgroundTasks,
@@ -183,7 +197,11 @@ def _locked_active_item(db: Session, item_id: int) -> OrderItem:
     return item
 
 
-@router.patch("/order-items/{item_id}/served", response_model=StaffOrderItemResponse)
+@router.patch(
+    "/order-items/{item_id}/served",
+    response_model=StaffOrderItemResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def update_served(item_id: int, data: QuantityUpdate, db: Session = Depends(get_db)):
     item = _locked_active_item(db, item_id)
     effective = item.quantity - item.canceled_quantity
@@ -200,7 +218,11 @@ def update_served(item_id: int, data: QuantityUpdate, db: Session = Depends(get_
     )
 
 
-@router.patch("/order-items/{item_id}/canceled", response_model=StaffOrderItemResponse)
+@router.patch(
+    "/order-items/{item_id}/canceled",
+    response_model=StaffOrderItemResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def update_canceled(item_id: int, data: QuantityUpdate, db: Session = Depends(get_db)):
     item = _locked_active_item(db, item_id)
     if data.quantity > item.quantity:
@@ -231,13 +253,21 @@ def get_categories(db: Session = Depends(get_db)):
     return get_menu_categories(db)
 
 
-@router.post("/orders", response_model=StaffOrderResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/orders",
+    response_model=StaffOrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_csrf), Depends(limit_staff_order)],
+)
 def create_order(data: StaffOrderCreate, db: Session = Depends(get_db)):
-    session = db.scalar(select(SessionModel).where(
-        SessionModel.id == data.session_id, SessionModel.status == "active"
-    ).with_for_update())
-    if session is None:
-        raise HTTPException(status_code=404, detail="利用中のSessionが見つかりません")
+    session = lock_active_session(db, data.session_id)
+    order_quantity = sum(item.quantity for item in data.items)
+    if order_quantity > MAX_STAFF_ORDER_QUANTITY:
+        raise HTTPException(
+            status_code=422,
+            detail=f"1回の代理注文数量は合計{MAX_STAFF_ORDER_QUANTITY}個までです",
+        )
+    validate_session_order_capacity(db, session.id, order_quantity)
     product_ids = [item.product_id for item in data.items]
     if len(product_ids) != len(set(product_ids)):
         raise HTTPException(status_code=422, detail="同じ商品を重複して指定できません")

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,6 +10,10 @@ class Selection(Base):
     __tablename__ = "selections"
     __table_args__ = (
         UniqueConstraint("participant_id", "product_id", name="uq_selections_participant_product"),
+        CheckConstraint(
+            "quantity >= 1 AND quantity <= 20",
+            name="ck_selections_quantity_range",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

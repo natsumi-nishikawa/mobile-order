@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from app.database import get_db
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.category import Category
 from app.models.product_category import ProductCategory
 from app.schemas.admin_category import AdminCategoryResponse, AdminCategoryWrite
 from app.store_auth import require_admin
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-
-router = APIRouter(prefix="/api/admin/categories", tags=["Admin categories"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/admin/categories",
+    tags=["Admin categories"],
+    dependencies=[Depends(require_demo_session), Depends(require_admin)],
+)
 
 
 def _clean_name(name: str) -> str:
@@ -19,7 +22,12 @@ def _clean_name(name: str) -> str:
     return cleaned
 
 
-@router.post("", response_model=AdminCategoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=AdminCategoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def create_category(data: AdminCategoryWrite, db: Session = Depends(get_db)):
     category = Category(name=_clean_name(data.name), display_order=data.display_order)
     db.add(category)
@@ -28,7 +36,11 @@ def create_category(data: AdminCategoryWrite, db: Session = Depends(get_db)):
     return category
 
 
-@router.put("/{category_id}", response_model=AdminCategoryResponse)
+@router.put(
+    "/{category_id}",
+    response_model=AdminCategoryResponse,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def update_category(category_id: int, data: AdminCategoryWrite, db: Session = Depends(get_db)):
     category = db.get(Category, category_id)
     if category is None:
@@ -40,7 +52,11 @@ def update_category(category_id: int, data: AdminCategoryWrite, db: Session = De
     return category
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_demo_csrf)],
+)
 def delete_category(category_id: int, db: Session = Depends(get_db)):
     category = db.get(Category, category_id)
     if category is None:

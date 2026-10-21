@@ -1,14 +1,20 @@
+from app.database import get_db
+from app.demo_auth import require_demo_csrf, require_demo_session
+from app.models.business_hour import BusinessHour
+from app.schemas.admin_business_hour import (
+    AdminBusinessHourResponse,
+    AdminBusinessHourWrite,
+)
+from app.store_auth import require_admin
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models.business_hour import BusinessHour
-from app.schemas.admin_business_hour import AdminBusinessHourResponse, AdminBusinessHourWrite
-from app.store_auth import require_admin
-
-
-router = APIRouter(prefix="/api/admin/business-hours", tags=["Admin business hours"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/admin/business-hours",
+    tags=["Admin business hours"],
+    dependencies=[Depends(require_demo_session), Depends(require_admin)],
+)
 
 
 @router.get("", response_model=list[AdminBusinessHourResponse])
@@ -16,7 +22,11 @@ def get_business_hours(db: Session = Depends(get_db)):
     return db.scalars(select(BusinessHour).order_by(BusinessHour.day_of_week)).all()
 
 
-@router.put("", response_model=list[AdminBusinessHourResponse])
+@router.put(
+    "",
+    response_model=list[AdminBusinessHourResponse],
+    dependencies=[Depends(require_demo_csrf)],
+)
 def update_business_hours(data: list[AdminBusinessHourWrite], db: Session = Depends(get_db)):
     days = [item.day_of_week for item in data]
     if len(data) != 7 or set(days) != set(range(7)):

@@ -1,32 +1,44 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
+from app.customer_auth import (
+    CurrentCustomer,
+    get_current_customer,
+    require_customer_session,
+)
 from app.database import get_db
-from app.customer_auth import CurrentCustomer, get_current_customer, require_customer_session
+from app.demo_auth import require_demo_csrf, require_demo_session
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.selection import Selection
+from app.order_limits import (
+    MAX_CUSTOMER_ORDER_QUANTITY,
+    MAX_ORDER_PRODUCT_TYPES,
+    lock_active_session,
+    validate_session_order_capacity,
+)
+from app.rate_limit_dependencies import limit_customer_order
+from app.routers.customer_selections import remove_expired_selections
 from app.schemas.customer import (
     OrderCreate,
     OrderCreateResponse,
     OrderItemResponse,
     OrderResponse,
 )
-from app.routers.customer_selections import remove_expired_selections
 from app.websocket_manager import customer_selection_connections
-
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 router = APIRouter(
     prefix="/api/customer",
     tags=["Customer"],
+    dependencies=[Depends(require_demo_session)],
 )
 
 
 @router.post(
     "/orders",
     response_model=OrderCreateResponse,
+    dependencies=[Depends(require_demo_csrf), Depends(limit_customer_order)],
 )
 def create_order(
     _data: OrderCreate,
@@ -36,6 +48,7 @@ def create_order(
 ):
     participant = customer.participant
     remove_expired_selections(db, customer.session.id)
+    lock_active_session(db, customer.session.id)
 
     selections = db.scalars(
         select(Selection).where(
@@ -48,6 +61,19 @@ def create_order(
             status_code=400,
             detail="商品が選択されていません",
         )
+
+    if len(selections) > MAX_ORDER_PRODUCT_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"1回の注文で指定できる商品は{MAX_ORDER_PRODUCT_TYPES}種類までです",
+        )
+    order_quantity = sum(selection.quantity for selection in selections)
+    if order_quantity > MAX_CUSTOMER_ORDER_QUANTITY:
+        raise HTTPException(
+            status_code=422,
+            detail=f"1回の注文数量は合計{MAX_CUSTOMER_ORDER_QUANTITY}個までです",
+        )
+    validate_session_order_capacity(db, customer.session.id, order_quantity)
 
     order = Order(
         session_id=participant.session_id,
