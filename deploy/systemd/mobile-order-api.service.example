@@ -1,0 +1,36 @@
+[Unit]
+Description=Mobile Order FastAPI service
+Wants=network-online.target
+After=network-online.target postgresql.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=mobile-order
+Group=mobile-order
+WorkingDirectory=/opt/mobile-order/backend
+EnvironmentFile=/etc/mobile-order/backend.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/mobile-order/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mobile-order-api
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0027
+ReadOnlyPaths=/opt/mobile-order
+
+[Install]
+WantedBy=multi-user.target

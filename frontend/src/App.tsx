@@ -7,8 +7,17 @@ import './StoreAuth.css'
 import { useCustomerSelectionsSocket } from './useCustomerSelectionsSocket'
 import { CustomerTableChooser, DemoLogin, UserChooser } from './DemoEntry'
 import type { DemoTable } from './DemoEntry'
-import { CUSTOMER_API, DEMO_AUTH_EXPIRED_EVENT, logoutDemo, protectedFetch, restoreDemoSession } from './demoAuth'
+import { CUSTOMER_API, DEMO_AUTH_EXPIRED_EVENT, invalidateDemoSession, logoutDemo, protectedFetch, restoreDemoSession } from './demoAuth'
 import { clearStoreAuth } from './storeAuth'
+import {
+  CUSTOMER_DEMO_BOUNDARY_EVENT,
+  clearCustomerToken,
+  clearCustomerTokenForDemoBoundary,
+  migrateLegacyCustomerToken,
+  parseDemoBoundary,
+  readCustomerToken,
+  saveCustomerToken,
+} from './customerAuthStorage'
 
 const API_BASE = CUSTOMER_API
 const MAX_CUSTOMER_ITEM_QUANTITY = 20
@@ -47,13 +56,13 @@ function CustomerApp({ selectedTable, onBack }: { selectedTable: DemoTable; onBa
   const tableId = selectedTable.id
 
   const authFetch = useCallback(async (path: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem('customer_token')
+    const token = readCustomerToken()
     const response = await protectedFetch(`${API_BASE}${path}`, {
       ...options,
       headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     })
     if (response.status === 401) {
-      localStorage.removeItem('customer_token')
+      clearCustomerToken()
       setCustomer(null)
       setUnavailable('利用情報が終了しました。QRコードから入り直してください。')
     }
@@ -73,13 +82,13 @@ function CustomerApp({ selectedTable, onBack }: { selectedTable: DemoTable; onBa
   useEffect(() => {
     const initialize = async () => {
       try {
-        const token = localStorage.getItem('customer_token')
+        const token = readCustomerToken()
         if (token) {
           const response = await authFetch('/me')
           if (response.ok) {
             const me: Customer = await response.json()
             if (tableId !== null && me.table_id !== tableId) {
-              localStorage.removeItem('customer_token')
+              clearCustomerToken()
             } else {
               setCustomer(me); setNickname(me.nickname); setTableName(me.table_name)
               await loadMenu(me)
@@ -115,7 +124,7 @@ function CustomerApp({ selectedTable, onBack }: { selectedTable: DemoTable; onBa
       const response = await protectedFetch(`${API_BASE}/sessions/${session.session_id}/participants`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: trimmed }) })
       if (!response.ok) { await showError(response, '登録に失敗しました'); return }
       const participant = await response.json()
-      localStorage.setItem('customer_token', participant.access_token)
+      saveCustomerToken(participant.access_token)
       const current = { participant_id: participant.participant_id, session_id: participant.session_id, table_id: tableId, table_name: session.table_name, nickname: participant.nickname }
       setCustomer(current); setNickname(current.nickname); setTableName(current.table_name)
       await loadMenu(current)
@@ -134,16 +143,24 @@ function CustomerApp({ selectedTable, onBack }: { selectedTable: DemoTable; onBa
   }, [authFetch, customer])
 
   const handleSessionEnded = useCallback(() => {
-    localStorage.removeItem('customer_token')
+    clearCustomerToken()
     setCustomer(null)
     setSelections([])
     setUnavailable('この来店セッションは終了しました。スタッフへお声がけください。')
+  }, [])
+
+  const handleCustomerAuthenticationLost = useCallback(() => {
+    clearCustomerToken()
+    setCustomer(null)
+    setSelections([])
+    setUnavailable('顧客認証情報を確認できません。テーブルを選び直して再参加してください。以前と同じニックネームを利用できない場合は、別のニックネームで参加してください。')
   }, [])
 
   useCustomerSelectionsSocket({
     sessionId: customer?.session_id ?? null,
     onRefresh: refreshSelections,
     onSessionEnded: handleSessionEnded,
+    onAuthenticationLost: handleCustomerAuthenticationLost,
   })
   const changeQuantity = async (product: Product, quantity: number) => {
     if (!customer || product.is_sold_out) return
@@ -303,21 +320,65 @@ function App() {
   const [demoError, setDemoError] = useState('')
   const [entryScreen, setEntryScreen] = useState<EntryScreen>('roles')
   const [selectedTable, setSelectedTable] = useState<DemoTable | null>(null)
+  const demoSyncVersion = useRef(0)
 
   useEffect(() => {
+    const synchronizeAfterBoundary = async (type: 'login' | 'logout' | 'expired') => {
+      const version = ++demoSyncVersion.current
+      clearCustomerToken()
+      invalidateDemoSession()
+      setSelectedTable(null); setEntryScreen('roles')
+      if (type !== 'login') {
+        if (version === demoSyncVersion.current) setDemoStatus('unauthenticated')
+        return
+      }
+
+      setDemoStatus('checking')
+      try {
+        const authenticated = await restoreDemoSession()
+        if (version !== demoSyncVersion.current) return
+        setDemoStatus(authenticated ? 'authenticated' : 'unauthenticated')
+      } catch (reason) {
+        if (version !== demoSyncVersion.current) return
+        setDemoError(reason instanceof Error ? reason.message : '通信に失敗しました')
+        setDemoStatus('error')
+      }
+    }
+
+    const initialVersion = ++demoSyncVersion.current
     restoreDemoSession()
-      .then((authenticated) => setDemoStatus(authenticated ? 'authenticated' : 'unauthenticated'))
-      .catch((reason) => { setDemoError(reason instanceof Error ? reason.message : '通信に失敗しました'); setDemoStatus('error') })
-    const expired = () => { setSelectedTable(null); setEntryScreen('roles'); setDemoStatus('unauthenticated') }
+      .then((authenticated) => {
+        if (initialVersion !== demoSyncVersion.current) return
+        if (authenticated) migrateLegacyCustomerToken()
+        else clearCustomerToken()
+        setDemoStatus(authenticated ? 'authenticated' : 'unauthenticated')
+      })
+      .catch((reason) => {
+        if (initialVersion !== demoSyncVersion.current) return
+        setDemoError(reason instanceof Error ? reason.message : '通信に失敗しました'); setDemoStatus('error')
+      })
+    const expired = () => {
+      clearCustomerTokenForDemoBoundary('expired')
+      void synchronizeAfterBoundary('expired')
+    }
+    const demoBoundaryChanged = (event: StorageEvent) => {
+      if (event.key !== CUSTOMER_DEMO_BOUNDARY_EVENT) return
+      const type = parseDemoBoundary(event.newValue)
+      if (type) void synchronizeAfterBoundary(type)
+    }
     window.addEventListener(DEMO_AUTH_EXPIRED_EVENT, expired)
-    return () => window.removeEventListener(DEMO_AUTH_EXPIRED_EVENT, expired)
+    window.addEventListener('storage', demoBoundaryChanged)
+    return () => {
+      window.removeEventListener(DEMO_AUTH_EXPIRED_EVENT, expired)
+      window.removeEventListener('storage', demoBoundaryChanged)
+    }
   }, [])
 
   const handleDemoLogout = async () => {
     try {
       setDemoError('')
       await logoutDemo()
-      localStorage.removeItem('customer_token')
+      clearCustomerTokenForDemoBoundary('logout')
       clearStoreAuth()
       setSelectedTable(null); setEntryScreen('roles'); setDemoStatus('unauthenticated')
     } catch (reason) {
@@ -326,10 +387,10 @@ function App() {
   }
 
   if (demoStatus === 'checking') return <main className="app entry"><p>認証状態を確認しています...</p></main>
-  if (demoStatus === 'unauthenticated' || demoStatus === 'error') return <DemoLogin initialError={demoError} onAuthenticated={() => { setDemoError(''); setDemoStatus('authenticated') }} />
+  if (demoStatus === 'unauthenticated' || demoStatus === 'error') return <DemoLogin initialError={demoError} onAuthenticated={() => { clearCustomerTokenForDemoBoundary('login'); setDemoError(''); setDemoStatus('authenticated') }} />
 
   const params = new URLSearchParams(window.location.search)
-  if (params.has('code') && params.has('state')) return <StoreCallback />
+  if (params.has('code') || params.has('state') || params.has('error')) return <StoreCallback />
   if (window.location.pathname === '/login') return <StoreLogin />
   if (window.location.pathname.startsWith('/admin')) return <StoreGuard role="admin"><AdminApp /></StoreGuard>
   if (window.location.pathname.startsWith('/staff')) return <StoreGuard role="staff"><StaffApp /></StoreGuard>

@@ -9,6 +9,7 @@ load_dotenv(".env.test", override=True)
 
 import jwt
 import pytest
+from app.auth import create_customer_token
 from app.database import Base, get_db
 from app.demo_auth import ALGORITHM, COOKIE_NAME
 from app.main import app
@@ -61,6 +62,17 @@ app.dependency_overrides[require_staff] = lambda: StoreUser("test-staff", "staff
 
 client = TestClient(app)
 authenticate_demo(client)
+
+
+def test_customer_token_keeps_the_twelve_hour_lifetime():
+    issued_after = datetime.now(timezone.utc)
+    token = create_customer_token(participant_id=1, session_id=1)
+    issued_before = datetime.now(timezone.utc)
+    payload = jwt.decode(token, options={"verify_signature": False})
+
+    expires_at = datetime.fromtimestamp(payload["exp"], timezone.utc)
+    assert expires_at - issued_before >= timedelta(hours=12) - timedelta(seconds=1)
+    assert expires_at - issued_after <= timedelta(hours=12)
 
 
 def clear_test_data():
@@ -558,6 +570,71 @@ def test_customer_participation_requires_csrf_and_active_session():
         f"/api/customer/sessions/{session_id}/participants",
         json={"nickname": "too-late"},
     ).status_code == 404
+    clear_test_data()
+
+
+def test_customer_participation_resynchronizes_csrf_after_another_tab_logs_in():
+    clear_test_data()
+    session_id = create_test_data()["session_id"]
+    origin = "http://localhost:5173"
+    browser = TestClient(app)
+
+    first_login = browser.post(
+        "/api/demo-auth/login",
+        json={"password": "test-demo-password"},
+        headers={"Origin": origin},
+    )
+    assert first_login.status_code == 200
+    first_tab_csrf = first_login.json()["csrf_token"]
+
+    second_tab_session = browser.get("/api/demo-auth/session")
+    assert second_tab_session.status_code == 200
+    second_tab_csrf = second_tab_session.json()["csrf_token"]
+    assert second_tab_csrf == first_tab_csrf
+
+    assert browser.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "tab-one"},
+        headers={"Origin": origin, "X-CSRF-Token": first_tab_csrf},
+    ).status_code == 200
+    assert browser.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "tab-two"},
+        headers={"Origin": origin, "X-CSRF-Token": second_tab_csrf},
+    ).status_code == 200
+
+    second_login = browser.post(
+        "/api/demo-auth/login",
+        json={"password": "test-demo-password"},
+        headers={"Origin": origin},
+    )
+    assert second_login.status_code == 200
+    assert browser.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "stale-csrf"},
+        headers={"Origin": origin, "X-CSRF-Token": first_tab_csrf},
+    ).status_code == 403
+
+    resynchronized = browser.get("/api/demo-auth/session")
+    assert resynchronized.status_code == 200
+    current_csrf = resynchronized.json()["csrf_token"]
+    assert current_csrf != first_tab_csrf
+    assert browser.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "resynchronized"},
+        headers={"Origin": origin, "X-CSRF-Token": current_csrf},
+    ).status_code == 200
+    assert browser.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "missing-csrf"},
+        headers={"Origin": origin},
+    ).status_code == 403
+    assert browser.post(
+        f"/api/customer/sessions/{session_id}/participants",
+        json={"nickname": "wrong-origin"},
+        headers={"Origin": "https://attacker.example", "X-CSRF-Token": current_csrf},
+    ).status_code == 403
+
     clear_test_data()
 
 

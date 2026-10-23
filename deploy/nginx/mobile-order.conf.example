@@ -10,6 +10,14 @@ limit_req_zone $binary_remote_addr zone=mobile_order_api:10m rate=10r/s;
 limit_req_zone $binary_remote_addr zone=mobile_order_upload:1m rate=2r/s;
 limit_conn_zone $binary_remote_addr zone=mobile_order_connections:10m;
 
+# Deliberately omit query strings, request bodies, referrers and request
+# headers so authorization codes, signed URLs, JWTs and cookies are not logged.
+log_format mobile_order_safe '$remote_addr [$time_local] '
+                             '"$request_method $uri $server_protocol" '
+                             '$status $body_bytes_sent $request_time';
+access_log /var/log/nginx/mobile-order-access.log mobile_order_safe;
+error_log /var/log/nginx/mobile-order-error.log error;
+
 upstream mobile_order_backend {
     server 127.0.0.1:8000;
     keepalive 16;
@@ -32,6 +40,19 @@ server {
 
     root /var/www/mobile-order/dist;
     index index.html;
+
+    # Replace the two CSP_CHANGE_ME tokens with complete origins before
+    # installing this template. Nginx does not expand shell environment
+    # variables in configuration files. Keep CSP in Report-Only mode until
+    # the production Cognito, S3 image and WebSocket flows are verified.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), accelerometer=(), gyroscope=(), magnetometer=()" always;
+    add_header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' wss://$host CSP_CHANGE_ME_COGNITO_ORIGIN; img-src 'self' blob: CSP_CHANGE_ME_S3_IMAGE_ORIGIN; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; frame-src 'none'; worker-src 'none'; media-src 'none';" always;
+
+    # Do not enable HSTS until the public domain, certificate and all HTTPS
+    # application flows have been verified. See README.md for staged rollout.
 
     client_max_body_size 64k;
     limit_req_status 429;

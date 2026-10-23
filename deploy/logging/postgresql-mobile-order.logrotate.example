@@ -1,0 +1,16 @@
+# Install only when the Ubuntu postgresql-common package does not already
+# rotate this path. Never install two rules for the same log.
+/var/log/postgresql/postgresql-*.log {
+    daily
+    rotate 14
+    maxsize 20M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    su root postgres
+    postrotate
+        /usr/bin/pg_ctlcluster --skip-systemctl-redirect REPLACE_WITH_VERSION REPLACE_WITH_CLUSTER logrotate
+    endscript
+}

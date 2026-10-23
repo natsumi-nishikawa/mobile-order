@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ProductImageObjectsOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::REPLACE_WITH_BUCKET_NAME/products/*"
+    },
+    {
+      "Sid": "ManageApplicationStaffOnly",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:ListUsersInGroup",
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:AdminEnableUser",
+        "cognito-idp:AdminDisableUser",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminDeleteUser",
+        "cognito-idp:AdminGetUser"
+      ],
+      "Resource": "arn:aws:cognito-idp:REPLACE_WITH_REGION:REPLACE_WITH_AWS_ACCOUNT_ID:userpool/REPLACE_WITH_USER_POOL_ID"
+    }
+  ]
+}

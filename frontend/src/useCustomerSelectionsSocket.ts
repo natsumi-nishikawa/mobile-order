@@ -1,23 +1,27 @@
 import { useEffect, useRef } from 'react'
 import { DEMO_AUTH_EXPIRED_EVENT, restoreDemoSession } from './demoAuth'
 import { WS_ORIGIN } from './apiConfig'
+import { readCustomerToken } from './customerAuthStorage'
 
 type Options = {
   sessionId: number | null
   onRefresh: () => Promise<void>
   onSessionEnded: () => void
+  onAuthenticationLost: () => void
 }
 
 const NOTIFICATION_DEBOUNCE_MS = 100
 const FALLBACK_REFRESH_MS = 60_000
 const MAX_RECONNECT_DELAY_MS = 30_000
 
-export function useCustomerSelectionsSocket({ sessionId, onRefresh, onSessionEnded }: Options) {
+export function useCustomerSelectionsSocket({ sessionId, onRefresh, onSessionEnded, onAuthenticationLost }: Options) {
   const onRefreshRef = useRef(onRefresh)
   const onSessionEndedRef = useRef(onSessionEnded)
+  const onAuthenticationLostRef = useRef(onAuthenticationLost)
 
   useEffect(() => { onRefreshRef.current = onRefresh }, [onRefresh])
   useEffect(() => { onSessionEndedRef.current = onSessionEnded }, [onSessionEnded])
+  useEffect(() => { onAuthenticationLostRef.current = onAuthenticationLost }, [onAuthenticationLost])
 
   useEffect(() => {
     if (sessionId === null) return
@@ -54,8 +58,12 @@ export function useCustomerSelectionsSocket({ sessionId, onRefresh, onSessionEnd
 
     const connect = () => {
       if (stopped) return
-      const token = localStorage.getItem('customer_token')
-      if (!token) return
+      const token = readCustomerToken()
+      if (!token) {
+        stopped = true
+        onAuthenticationLostRef.current()
+        return
+      }
 
       socket = new WebSocket(`${WS_ORIGIN}/ws/customer/selections`)
       socket.onopen = () => {

@@ -1,0 +1,19 @@
+# Merge in this order after locating the active file with SHOW hba_file;.
+# Keep Ubuntu's local PostgreSQL administration rule.
+local   all                              postgres                         peer
+
+# The application database does not accept other Unix-socket identities.
+local   REPLACE_WITH_DATABASE_NAME       all                              reject
+
+# FastAPI and Alembic use TCP loopback and separate login roles.
+host    REPLACE_WITH_DATABASE_NAME       REPLACE_WITH_APP_ROLE            127.0.0.1/32    scram-sha-256
+host    REPLACE_WITH_DATABASE_NAME       REPLACE_WITH_MIGRATION_ROLE      127.0.0.1/32    scram-sha-256
+host    REPLACE_WITH_DATABASE_NAME       REPLACE_WITH_BACKUP_ROLE         127.0.0.1/32    scram-sha-256
+host    REPLACE_WITH_DATABASE_NAME       REPLACE_WITH_APP_ROLE            ::1/128         scram-sha-256
+host    REPLACE_WITH_DATABASE_NAME       REPLACE_WITH_MIGRATION_ROLE      ::1/128         scram-sha-256
+host    REPLACE_WITH_DATABASE_NAME       REPLACE_WITH_BACKUP_ROLE         ::1/128         scram-sha-256
+
+# Defence in depth: no other TCP client may enter this application database.
+# These rejects must remain after the exact loopback rules above.
+host    REPLACE_WITH_DATABASE_NAME       all                              0.0.0.0/0       reject
+host    REPLACE_WITH_DATABASE_NAME       all                              ::0/0            reject

@@ -1,0 +1,39 @@
+[Unit]
+Description=Mobile Order PostgreSQL backup to private S3
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=mobile-order-backup
+Group=mobile-order-backup
+EnvironmentFile=/etc/mobile-order/backup.env
+ExecStart=/usr/local/sbin/mobile-order-postgresql-backup
+UMask=0077
+StateDirectory=mobile-order-backup
+StateDirectoryMode=0700
+RuntimeDirectory=mobile-order-backup
+RuntimeDirectoryMode=0700
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mobile-order-postgresql-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=25%
+MemoryMax=256M
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

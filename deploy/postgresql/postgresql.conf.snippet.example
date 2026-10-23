@@ -1,0 +1,4 @@
+# Merge these settings into the active postgresql.conf after locating it with
+# SHOW config_file;. Do not replace the distribution file with this snippet.
+listen_addresses = 'localhost'
+password_encryption = 'scram-sha-256'

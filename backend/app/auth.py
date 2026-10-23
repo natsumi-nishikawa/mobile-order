@@ -3,10 +3,11 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import HTTPException
-from dotenv import load_dotenv
+
+from app.runtime_config import load_local_environment
 
 
-load_dotenv()
+load_local_environment()
 
 CUSTOMER_JWT_SECRET = os.getenv("CUSTOMER_JWT_SECRET")
 ALGORITHM = "HS256"

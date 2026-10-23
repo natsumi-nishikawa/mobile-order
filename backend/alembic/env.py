@@ -16,7 +16,11 @@ config = context.config
 env_file = os.getenv("ENV_FILE", ".env")
 load_dotenv(env_file, override=True)
 
-database_url = os.getenv("DATABASE_URL")
+database_url = os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL")
+if not database_url:
+    raise RuntimeError(
+        "MIGRATION_DATABASE_URL or DATABASE_URL is required to run Alembic"
+    )
 
 config.set_main_option("sqlalchemy.url", database_url)
 

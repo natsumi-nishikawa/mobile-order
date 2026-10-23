@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+log() {
+    printf '%s %s\n' "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" "$1"
+}
+
+fail() {
+    log "ERROR: $1" >&2
+    exit 1
+}
+
+for command_name in pg_dump pg_restore aws sha256sum stat mktemp flock date awk install rm; do
+    command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
+done
+
+required_variables=(
+    PGHOST PGPORT PGDATABASE PGUSER PGPASSFILE
+    BACKUP_S3_BUCKET BACKUP_S3_PREFIX AWS_REGION BACKUP_LOCAL_DIR
+)
+for variable_name in "${required_variables[@]}"; do
+    [[ -n "${!variable_name:-}" ]] || fail "required environment variable is missing: $variable_name"
+done
+
+[[ "$PGHOST" == "127.0.0.1" || "$PGHOST" == "::1" ]] || fail "PGHOST must be loopback"
+[[ "$PGPORT" =~ ^[0-9]{1,5}$ ]] || fail "PGPORT is invalid"
+[[ "$BACKUP_S3_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || fail "BACKUP_S3_BUCKET is invalid"
+[[ "$BACKUP_S3_PREFIX" =~ ^[A-Za-z0-9][A-Za-z0-9/_-]*$ ]] || fail "BACKUP_S3_PREFIX is invalid"
+[[ "$BACKUP_S3_PREFIX" != *".."* ]] || fail "BACKUP_S3_PREFIX must not contain '..'"
+[[ "$AWS_REGION" =~ ^[a-z0-9-]+$ ]] || fail "AWS_REGION is invalid"
+[[ -r "$PGPASSFILE" ]] || fail "PGPASSFILE is not readable"
+[[ "$BACKUP_LOCAL_DIR" == "/var/lib/mobile-order-backup" ]] || fail "BACKUP_LOCAL_DIR is unexpected"
+
+lock_file="/run/mobile-order-backup/backup.lock"
+exec 9>"$lock_file"
+flock --nonblock 9 || fail "another backup run is active"
+
+temporary_directory=""
+cleanup() {
+    if [[ -n "$temporary_directory" && "$temporary_directory" == "$BACKUP_LOCAL_DIR"/tmp/backup.* ]]; then
+        rm -rf -- "$temporary_directory"
+    fi
+}
+trap cleanup EXIT INT TERM
+
+install -d -m 0700 "$BACKUP_LOCAL_DIR/tmp"
+temporary_directory="$(mktemp --directory "$BACKUP_LOCAL_DIR/tmp/backup.XXXXXXXX")"
+timestamp="$(date --utc '+%Y%m%dT%H%M%SZ')"
+dump_file="$temporary_directory/postgresql-$timestamp.dump"
+
+log "Starting PostgreSQL backup"
+pg_dump --format=custom --no-password --file="$dump_file"
+[[ -s "$dump_file" ]] || fail "pg_dump produced an empty backup"
+pg_restore --list "$dump_file" >/dev/null
+
+local_size="$(stat --format='%s' "$dump_file")"
+local_sha256="$(sha256sum "$dump_file" | awk '{print $1}')"
+[[ "$local_size" =~ ^[1-9][0-9]*$ ]] || fail "backup size validation failed"
+[[ "$local_sha256" =~ ^[0-9a-f]{64}$ ]] || fail "backup checksum validation failed"
+
+upload_and_verify() {
+    local retention_class="$1"
+    local object_key="$BACKUP_S3_PREFIX/$retention_class/postgresql-$timestamp.dump"
+    local remote_metadata
+    local remote_size
+    local remote_sha256
+
+    aws s3api put-object \
+        --region "$AWS_REGION" \
+        --bucket "$BACKUP_S3_BUCKET" \
+        --key "$object_key" \
+        --body "$dump_file" \
+        --server-side-encryption AES256 \
+        --metadata "sha256=$local_sha256" \
+        --no-cli-pager >/dev/null
+
+    remote_metadata="$(aws s3api head-object \
+        --region "$AWS_REGION" \
+        --bucket "$BACKUP_S3_BUCKET" \
+        --key "$object_key" \
+        --query '[ContentLength, Metadata.sha256]' \
+        --output text \
+        --no-cli-pager)"
+    read -r remote_size remote_sha256 <<<"$remote_metadata"
+    [[ "$remote_size" == "$local_size" ]] || fail "uploaded backup size verification failed"
+    [[ "$remote_sha256" == "$local_sha256" ]] || fail "uploaded backup checksum metadata verification failed"
+    log "Verified S3 backup class=$retention_class size_bytes=$local_size"
+}
+
+upload_and_verify daily
+
+if [[ "$(date --utc '+%u')" == "7" ]]; then
+    upload_and_verify weekly
+fi
+
+if [[ "$(date --utc '+%d')" == "01" ]]; then
+    upload_and_verify monthly
+fi
+
+log "PostgreSQL backup completed successfully"

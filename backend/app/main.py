@@ -1,3 +1,12 @@
+from app.runtime_config import (
+    api_documentation_urls,
+    load_local_environment,
+    validate_production_environment,
+)
+
+load_local_environment()
+validate_production_environment()
+
 from app.origin_config import get_allowed_origins
 from app.request_size_limit import RequestSizeLimitMiddleware
 from app.routers.admin_accounting import router as admin_accounting_router
@@ -18,7 +27,7 @@ from app.routers.staff import router as staff_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+app = FastAPI(**api_documentation_urls())
 
 
 app.add_middleware(RequestSizeLimitMiddleware)
@@ -53,3 +62,8 @@ app.include_router(demo_auth_router)
 @app.get("/")
 def root():
     return {"message": "Mobile Order API"}
+
+
+@app.get("/api/health", include_in_schema=False)
+def health():
+    return {"status": "ok"}

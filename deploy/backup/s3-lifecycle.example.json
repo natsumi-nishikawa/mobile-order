@@ -1,0 +1,28 @@
+{
+  "Rules": [
+    {
+      "ID": "ExpireDailyPostgreSQLBackups",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "postgresql/daily/"},
+      "Expiration": {"Days": 7},
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 7},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+    },
+    {
+      "ID": "ExpireWeeklyPostgreSQLBackups",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "postgresql/weekly/"},
+      "Expiration": {"Days": 28},
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 28},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+    },
+    {
+      "ID": "ExpireMonthlyPostgreSQLBackups",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "postgresql/monthly/"},
+      "Expiration": {"Days": 92},
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 92},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+    }
+  ]
+}
